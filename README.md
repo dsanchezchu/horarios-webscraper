@@ -2,6 +2,28 @@
 
 Este proyecto tiene como objetivo desarrollar un web scraper para extraer información de horarios de clase de sitios web. La herramienta permitirá a los estudiantes acceder a sus horarios de forma rápida y sencilla, sin necesidad de navegar por páginas web complejas o PDFs confusos.
 
+
+## Entorno de Trabajo
+
+Sigue estos pasos para crear y ejecutar tu entorno de trabajo en Python:
+
+1. **Crear un entorno virtual**:
+    Navega al directorio del proyecto y crea un entorno virtual ejecutando el siguiente comando:
+    ```bash
+    python -m venv venv
+    ```
+
+2. **Activar el entorno virtual**:
+    - En Windows:
+      ```bash
+      .\venv\Scripts\activate
+      ```
+    - En macOS y Linux:
+      ```bash
+      source venv/bin/activate
+      ```
+
+
 ## Requisitos
 
 Asegúrate de tener instalado Python 3.7 o superior.
