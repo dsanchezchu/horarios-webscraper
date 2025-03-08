@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configuración inicial
-CURSO_ID = input("Ingrese ID del curso (ej: ISIA-109): ").strip().replace('-', '').lower()
+CURSO_ID = input("Ingrese ID del curso (ej: ISIA-109): ").strip().upper()
 PDF_FOLDER = "horarios_generados"
 os.makedirs(PDF_FOLDER, exist_ok=True)
 
@@ -220,6 +220,60 @@ def login_and_navigate(driver):
         print(f"[+] Esperando {random_delay('carga')} segundos...")
         time.sleep(random_delay('carga'))
 
+        try:
+            # Validar formato del código (ej. "ISIA-112")
+            curso_id = CURSO_ID.strip().upper()
+            if not re.match(r'^[A-Z]{4}-\d{3}$', curso_id):
+                raise ValueError("Formato inválido. Ejemplo: 'ISIA-112', colocaste: " + CURSO_ID)
+
+            # XPath optimizado con doble validación
+            xpath = f"//td[" \
+                    f"contains(@onclick, 'f_detalle_cursos') and " \
+                    f"span[@class='letra' and normalize-space()='{curso_id}']" \
+                    f"]"
+            
+            try:
+                # Espera inteligente hasta 20 segundos
+                curso_row = WebDriverWait(driver, 20).until(
+                    EC.element_to_be_clickable((By.XPATH, xpath))
+                )
+            except:
+                print(f"[-] Curso {curso_id} no encontrado")
+                return False
+
+            # Verificar atributos críticos
+            onclick = curso_row.get_attribute('onclick')
+            if not onclick.startswith('javascript:f_detalle_cursos'):
+                raise ValueError("Elemento no es un curso válido")
+
+            # Scroll y clic seguro
+            driver.execute_script("""
+                arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});
+            """, curso_row)
+            
+            time.sleep(random.uniform(0.8, 1.2))  # Espera para animaciones
+            
+            # Ejecutar clic mediante JavaScript
+            driver.execute_script("arguments[0].click();", curso_row)
+            print(f"[+] Clickeando en {curso_id}...")
+
+            # Esperar carga del detalle
+            try:
+                WebDriverWait(driver, 15).until(
+                    EC.visibility_of_element_located(
+                        (By.XPATH, "//div[contains(@id, 'id_detalle_cursos') and contains(@style, 'display: block')]")
+                    )
+                )
+                print(f"[+] Detalle de {curso_id} cargado exitosamente")
+                return extract_course_data(driver)
+            except:
+                print(f"[-] Timeout esperando detalle de {curso_id}")
+                return False
+
+        except Exception as e:
+            print(f"[-] Error: {str(e)}")
+            driver.quit()
+            raise
         return extract_course_data(driver)
         
     except Exception as e:
