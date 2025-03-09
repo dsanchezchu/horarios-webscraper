@@ -61,115 +61,115 @@ def parse_horario(hora_str):
         print(f"[-] Error al parsear horario: {str(e)}")
         raise
 
-def extract_course_data(driver):
-    print("[+] Extrayendo datos del curso...")
-    secciones = []
-    
-    try:
-        # Localizar contenedor principal
-        contenedor = WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.XPATH, "//div[@id='id_grids']"))
-        )
-        
-        # Buscar todas las filas de cursos
-        rows = contenedor.find_elements(By.XPATH, ".//tr[contains(@style, 'background:#EAF3FD') or contains(@style, 'background:#FFFFFF')]")
-        
-        for row in rows:
-            try:
-                # Extraer código de curso
-                codigo_span = row.find_element(By.XPATH, ".//td[1]//span[@class='letra']")
-                codigo = codigo_span.text.strip().replace('-', '').lower()
-                
-                if codigo != CURSO_ID:
-                    continue
-                    
-                print(f"[+] Curso {codigo_span.text} encontrado. Extrayendo detalles...")
-                
-                # Hacer clic en la fila (con scroll y espera)
-                driver.execute_script("arguments[0].scrollIntoView(true);", row)
-                time.sleep(random.uniform(1.5, 3.5))
-                row.click()
-                
-                # Esperar página de detalles
-                WebDriverWait(driver, 20).until(
-                    EC.presence_of_element_located((By.XPATH, "//div[contains(@style, 'border-bottom:0px solid #C0C0C0')]"))
-                )
-                
-                # Extraer cabecera
-                cabecera = driver.find_element(By.XPATH, "//table[1]").text
-                nrc = re.search(r'NRC:\s*(\S+)', cabecera).group(1)
-                secc = re.search(r'SECC:\s*(\S+)', cabecera).group(1)
-                id_liga = re.search(r'ID LIGA:\s*(\S+)', cabecera).group(1)
-                liga = re.search(r'LIGA:\s*(\S+)', cabecera).group(1).split()[0]  # Extraer T/P/L
-                
-                # Extraer horarios
-                horarios = []
-                tabla = driver.find_element(By.XPATH, "//table[2]")
-                for fila in tabla.find_elements(By.XPATH, ".//tr[contains(@style, 'background:#FFFFFF')]"):
-                    celdas = fila.find_elements(By.TAG_NAME, 'td')
-                    if len(celdas) >= 6:
-                        horarios.append({
-                            'dia': celdas[2].text.strip(),
-                            'hora_inicio': parse_horario(celdas[3].text.strip())['inicio'],
-                            'hora_fin': parse_horario(celdas[3].text.strip())['fin'],
-                            'docente': celdas[5].text.strip(),
-                            'aula': celdas[1].text.strip()
-                        })
-                
-                secciones.append({
-                    'nrc': nrc,
-                    'seccion': secc,
-                    'id_liga': id_liga,
-                    'liga': liga,
-                    'horarios': horarios,
-                    'curso': codigo_span.text  # Versión original con formato
-                })
-                
-                # Regresar a la lista principal
-                driver.back()
-                time.sleep(random.uniform(3, 5))
-                WebDriverWait(driver, 20).until(
-                    EC.presence_of_element_located((By.XPATH, "//div[@id='id_grids']"))
-                )
-                
-            except Exception as e:
-                print(f"[-] Error en fila: {str(e)}")
-                continue
-    
-    except Exception as e:
-        print(f"[-] Error crítico: {str(e)}")
-    
-    return secciones
-
 def generate_combinations(secciones):
-    print("[+] Generando combinaciones de horarios...")
-    ligas = {}
+    """
+    Genera combinaciones solo con secciones del mismo grupo (T1+P1+L1, T2+P2+L2, etc)
+    """
+    grupos_compatibles = {}
+
+    # Agrupar por curso y número de grupo
     for sec in secciones:
-        if sec['id_liga'] not in ligas:
-            ligas[sec['id_liga']] = {
-                'T': [], 
-                'P': [], 
-                'L': []
-            }
-        for tipo in sec['liga'].split():
-            ligas[sec['id_liga']][tipo[0]].append(sec)
+        curso = sec['curso']
+        id_liga = sec['id_liga']
+        grupo_num = id_liga[1:]  # Extrae el número del grupo (ej. T1 → '1')
+        
+        # Clasificar por tipo
+        tipo = None
+        if 'T' in id_liga:
+            tipo = 'teoria'
+        elif 'P' in id_liga:
+            tipo = 'practica'
+        elif 'L' in id_liga:
+            tipo = 'laboratorio'
+
+        if tipo:
+            # Estructura: {curso: {grupo_num: {tipo: [secciones]}}}
+            grupos_compatibles.setdefault(curso, {}).setdefault(grupo_num, {}).setdefault(tipo, []).append(sec)
 
     combinaciones = []
-    for liga_id, grupos in ligas.items():
-        teoricas = grupos['T']
-        practicas = grupos['P']
-        labs = grupos['L']
-        
-        if teoricas and practicas and labs:
-            combinaciones.extend(product(teoricas, practicas, labs))
-        elif teoricas and practicas:
-            combinaciones.extend(product(teoricas, practicas))
-        else:
-            combinaciones.extend(teoricas + practicas + labs)
-        
-        time.sleep(random_delay('combinaciones'))
     
+    for curso, grupos in grupos_compatibles.items():
+        for grupo_num, componentes in grupos.items():
+            teoria = componentes.get('teoria', [])
+            practica = componentes.get('practica', [])
+            laboratorio = componentes.get('laboratorio', [])
+            
+            # Validar que exista al menos teoría
+            if not teoria:
+                continue
+                
+            # Generar combinaciones dentro del mismo grupo
+            if practica and laboratorio:
+                # Combinar T + P + L del mismo grupo
+                for t, p, l in product(teoria, practica, laboratorio):
+                    combinaciones.append([t, p, l])
+            elif practica:
+                # Combinar T + P del mismo grupo
+                for t, p in product(teoria, practica):
+                    combinaciones.append([t, p])
+            elif laboratorio:
+                # Combinar T + L del mismo grupo (si aplica)
+                for t, l in product(teoria, laboratorio):
+                    combinaciones.append([t, l])
+            else:
+                # Solo teoría (si no hay otros componentes)
+                combinaciones.extend(teoria)
+
     return combinaciones
+
+def extract_course_data(driver):
+    data = []
+    max_attempts = 3
+    attempt = 0
+
+    while attempt < max_attempts:
+        try:
+            print("[+] Esperando carga de los cursos...")
+            WebDriverWait(driver, 20).until(
+                EC.visibility_of_element_located((By.ID, "id_detalle_cursos"))
+            )
+
+            # Extraer bloques de cursos
+            print("[+] Extrayendo información de los cursos...")
+            course_blocks = driver.find_elements(By.XPATH, "//div[@style='border-bottom:0px solid #C0C0C0;margin-bottom:30px;margin-left:5px;']")
+
+            for block in course_blocks:
+                try:
+                    nrc = block.find_element(By.XPATH, ".//td[contains(text(), 'NRC:')]/b").text.strip()
+                    id_liga = block.find_element(By.XPATH, ".//td[contains(text(), 'ID LIGA:')]/b").text.strip()
+                    id_docente = block.find_elements(By.XPATH, ".//td[@class='e_fila_table3']")[1].text.strip()
+                    docente = block.find_element(By.XPATH, ".//td[@class='e_fila_table4']").text.strip()
+                    
+                    horarios = []
+                    schedule_rows = block.find_elements(By.XPATH, ".//tr[@style='background:#FFFFFF;font-size:12px;']")
+                    
+                    for row in schedule_rows:
+                        columns = row.find_elements(By.TAG_NAME, "td")
+                        dia = columns[2].text.strip()
+                        hora = columns[3].text.strip()
+                        hora_inicio, hora_fin = parse_horario(hora).values()
+                        horarios.append({"nrc": nrc, "dia": dia, "hora_inicio": hora_inicio, "hora_fin": hora_fin, "docente": docente})
+
+                    data.append({
+                        "curso": CURSO_ID,
+                        "nrc": nrc,
+                        "id_liga": id_liga,
+                        "id_docente": id_docente,
+                        "docente": docente,
+                        "horarios": horarios
+                    })
+                except Exception as e:
+                    print(f"[-] Error al extraer datos del bloque: {str(e)}")
+
+            return data
+        
+        except Exception as e:
+            attempt += 1
+            print(f"[-] Intento {attempt}/{max_attempts} fallido: {str(e)}")
+            time.sleep(random.uniform(2, 4))
+
+    print("[-] Error crítico: No se pudo extraer la información")
+    return []
 
 def login_and_navigate(driver):
     try:
@@ -246,7 +246,6 @@ def login_and_navigate(driver):
             if not onclick.startswith('javascript:f_detalle_cursos'):
                 raise ValueError("Elemento no es un curso válido")
 
-            # Scroll y clic seguro
             driver.execute_script("""
                 arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});
             """, curso_row)
@@ -257,24 +256,34 @@ def login_and_navigate(driver):
             driver.execute_script("arguments[0].click();", curso_row)
             print(f"[+] Clickeando en {curso_id}...")
 
-            # Esperar carga del detalle
+            # Esperar carga de detalle
+            # WebDriverWait(driver, 15).until(
+            #     EC.visibility_of_element_located(
+            #         (By.XPATH, "//div[@id='id_detalle_cursos'][contains(@style, 'display: block')]")
+            #     )
+            # )
+
             try:
-                WebDriverWait(driver, 15).until(
+                # Esperar carga de detalle
+                WebDriverWait(driver, 20).until(
                     EC.visibility_of_element_located(
-                        (By.XPATH, "//div[contains(@id, 'id_detalle_cursos') and contains(@style, 'display: block')]")
+                        (By.XPATH, "//div[@id='id_detalle_cursos']//table[@width='90%;' and @border='0' and @cellpadding='5' and @cellspacing='2' and contains(@class, 'tabla_3')]")
                     )
                 )
-                print(f"[+] Detalle de {curso_id} cargado exitosamente")
+                print("[+] Detalle cargado exitosamente")
+                
+                # Extraer datos
                 return extract_course_data(driver)
-            except:
-                print(f"[-] Timeout esperando detalle de {curso_id}")
+                
+            except Exception as e:
+                print(f"[-] Error en carga de detalle: {str(e)}")
+                driver.save_screenshot("error_screenshot.png")  # Captura de pantalla para depuración
                 return False
 
         except Exception as e:
             print(f"[-] Error: {str(e)}")
             driver.quit()
             raise
-        return extract_course_data(driver)
         
     except Exception as e:
         print(f"[-] Error: {str(e)}")
@@ -287,9 +296,9 @@ def crear_pdf(horario, filename):
         width, height = letter
         c.drawString(100, height - 40, f"Horario del curso {CURSO_ID}")
         
-        data = [["Curso", "Sección", "Día", "Hora Inicio", "Hora Fin", "Docente"]]
+        data = [["Curso", "ID Liga", "Día", "Hora Inicio", "Hora Fin", "Docente", "NRC"]]
         for h in horario:
-            data.append([h['curso'], h['seccion'], h['dia'], h['hora_inicio'].strftime("%H:%M"), h['hora_fin'].strftime("%H:%M"), h['docente']])
+            data.append([h['curso'], h['id_liga'], h['dia'], h['hora_inicio'].strftime("%H:%M"), h['hora_fin'].strftime("%H:%M"), h['docente'], h['nrc']])
         
         table = Table(data)
         table.setStyle(TableStyle([
@@ -314,9 +323,9 @@ def main():
     driver = setup_brave()
     
     try:
-        secciones = login_and_navigate(driver)
-        
-        combinaciones = generate_combinations(secciones)
+        login = login_and_navigate(driver)
+        # secciones = extract_course_data(login)
+        combinaciones = generate_combinations(login)
         print(f"[+] {len(combinaciones)} combinaciones encontradas")
         
         validas = 0
@@ -326,11 +335,12 @@ def main():
                 for h in sec['horarios']:
                     horario.append({
                         'curso': sec['curso'],
-                        'seccion': sec['seccion'],
+                        'id_liga': sec['id_liga'],
                         'dia': h['dia'],
                         'hora_inicio': h['hora_inicio'],
                         'hora_fin': h['hora_fin'],
-                        'docente': h['docente']
+                        'docente': h['docente'],
+                        'nrc': h['nrc']
                     })
             
             df = pd.DataFrame(horario)
