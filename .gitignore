@@ -1,2 +1,4 @@
-.env
 horarios_generados/
+venv/
+.env
+captcha.png

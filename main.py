@@ -27,12 +27,25 @@ def setup_brave():
     try:
         print("[+] Configurando navegador Brave...")
         options = webdriver.ChromeOptions()
-        options.binary_location = "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
+        
+        # Detectar sistema operativo y ubicar el navegador Brave
+        if os.name == 'nt':  # Windows
+            brave_path = "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
+        elif os.name == 'posix':  # Linux
+            brave_path = "/usr/bin/brave-browser"
+        else:
+            raise EnvironmentError("Sistema operativo no soportado")
+        
+        if not os.path.exists(brave_path):
+            raise FileNotFoundError(f"Brave no encontrado en la ruta: {brave_path}")
+        
+        options.binary_location = brave_path
         options.add_argument("--start-maximized")
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_argument("--disable-gpu")  # Desactivar aceleración de hardware
         options.add_argument("--disable-software-rasterizer")  # Desactivar rasterizador de software
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        
         return webdriver.Chrome(options=options)
     except Exception as e:
         print(f"[-] Error al configurar Brave: {str(e)}")
