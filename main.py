@@ -15,8 +15,20 @@ import os
 import time
 from dotenv import load_dotenv
 
-# Cargar variables de entorno
-load_dotenv()
+# Cargar variables de entorno desde el archivo .env
+from pathlib import Path
+dotenv_path = Path('.env')
+os.environ.pop("UPAO_USER", None)
+os.environ.pop("UPAO_PASS", None)
+os.environ.pop("BASE_URL", None)
+os.environ.pop("BASE_HORARIOS", None)
+
+# Recargar el archivo .env
+load_dotenv(dotenv_path=dotenv_path, override=True)
+
+# Verifica que las credenciales sean las correctas
+print("Usuario:", os.getenv("UPAO_USER"))
+print("Contraseña:", os.getenv("UPAO_PASS"))
 
 # Configuración inicial
 CURSO_ID = input("Ingrese ID del curso (ej: ISIA-109): ").strip().upper()
@@ -187,19 +199,29 @@ def extract_course_data(driver):
 def login_and_navigate(driver):
     try:
         print("[+] Iniciando sesión y navegando...")
-        driver.get(os.getenv("BASE_URL"))
-        
+        base_url = os.getenv("BASE_URL")
+        upao_user = os.getenv("UPAO_USER")
+        upao_pass = os.getenv("UPAO_PASS")
+        base_horarios = os.getenv("BASE_HORARIOS")
+
+        if not all([base_url, upao_user, upao_pass, base_horarios]):
+            raise ValueError("Faltan variables de entorno en el archivo .env")
+
+        driver.get(base_url)
+
         form_container = WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//table[.//input[@placeholder='usuario']]"))
         )
-        
+
         username = form_container.find_element(By.XPATH, ".//input[@placeholder='usuario']")
         password = form_container.find_element(By.XPATH, ".//input[@placeholder='contraseña']")
-        username.send_keys(os.getenv("UPAO_USER"))
+        username.clear()
+        username.send_keys(upao_user)
         time.sleep(random.uniform(0.5, 1.5))
-        password.send_keys(os.getenv("UPAO_PASS"))
+        password.clear()
+        password.send_keys(upao_pass)
         time.sleep(random.uniform(0.5, 1.5))
-        
+
         try:
             captcha = form_container.find_element(By.ID, "imgCaptcha")
             captcha.screenshot("captcha.png")
@@ -208,53 +230,45 @@ def login_and_navigate(driver):
                 form_container.find_element(By.ID, "txt_img").send_keys(code)
         except:
             pass
-        
+
         form_container.find_element(By.ID, "btn_valida").click()
         time.sleep(random.uniform(4, 6))
-        
-        driver.get(os.getenv("BASE_HORARIOS"))
+
+        driver.get(base_horarios)
         time.sleep(random.uniform(5, 7))
-        
+
         pregrado_link = WebDriverWait(driver, 20).until(
             EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Horarios de clase pregrado (Trujillo-Piura)')]"))
         )
         pregrado_link.click()
         time.sleep(random.uniform(3, 5))
-        
+
         print(f"[+] Esperando {random_delay('navegacion')} segundos...")
         time.sleep(random_delay('navegacion'))
 
         print("[+] Accediendo a ISIA...")
         isia_row = driver.find_element(By.XPATH, "//td[contains(text(), 'ISIA')]/following-sibling::td[1]")
-        
+
         time.sleep(random.uniform(1.0, 2.5))
         driver.execute_script("arguments[0].click();", isia_row)
-        
+
         print(f"[+] Esperando {random_delay('carga')} segundos...")
         time.sleep(random_delay('carga'))
 
         try:
-            # Validar formato del código (ej. "ISIA-112")
             curso_id = CURSO_ID.strip().upper()
             if not re.match(r'^[A-Z]{4}-\d{3}$', curso_id):
                 raise ValueError("Formato inválido. Ejemplo: 'ISIA-112', colocaste: " + CURSO_ID)
 
-            # XPath optimizado con doble validación
             xpath = f"//td[" \
                     f"contains(@onclick, 'f_detalle_cursos') and " \
                     f"span[@class='letra' and normalize-space()='{curso_id}']" \
                     f"]"
-            
-            try:
-                # Espera inteligente hasta 20 segundos
-                curso_row = WebDriverWait(driver, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, xpath))
-                )
-            except:
-                print(f"[-] Curso {curso_id} no encontrado")
-                return False
 
-            # Verificar atributos críticos
+            curso_row = WebDriverWait(driver, 20).until(
+                EC.element_to_be_clickable((By.XPATH, xpath))
+            )
+
             onclick = curso_row.get_attribute('onclick')
             if not onclick.startswith('javascript:f_detalle_cursos'):
                 raise ValueError("Elemento no es un curso válido")
@@ -262,42 +276,25 @@ def login_and_navigate(driver):
             driver.execute_script("""
                 arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});
             """, curso_row)
-            
-            time.sleep(random.uniform(0.8, 1.2))  # Espera para animaciones
-            
-            # Ejecutar clic mediante JavaScript
+
+            time.sleep(random.uniform(0.8, 1.2))
             driver.execute_script("arguments[0].click();", curso_row)
             print(f"[+] Clickeando en {curso_id}...")
 
-            # Esperar carga de detalle
-            # WebDriverWait(driver, 15).until(
-            #     EC.visibility_of_element_located(
-            #         (By.XPATH, "//div[@id='id_detalle_cursos'][contains(@style, 'display: block')]")
-            #     )
-            # )
-
-            try:
-                # Esperar carga de detalle
-                WebDriverWait(driver, 20).until(
-                    EC.visibility_of_element_located(
-                        (By.XPATH, "//div[@id='id_detalle_cursos']//table[@width='90%;' and @border='0' and @cellpadding='5' and @cellspacing='2' and contains(@class, 'tabla_3')]")
-                    )
+            WebDriverWait(driver, 20).until(
+                EC.visibility_of_element_located(
+                    (By.XPATH, "//div[@id='id_detalle_cursos']//table[@width='90%;' and @border='0' and @cellpadding='5' and @cellspacing='2' and contains(@class, 'tabla_3')]")
                 )
-                print("[+] Detalle cargado exitosamente")
-                
-                # Extraer datos
-                return extract_course_data(driver)
-                
-            except Exception as e:
-                print(f"[-] Error en carga de detalle: {str(e)}")
-                driver.save_screenshot("error_screenshot.png")  # Captura de pantalla para depuración
-                return False
+            )
+            print("[+] Detalle cargado exitosamente")
+
+            return extract_course_data(driver)
 
         except Exception as e:
             print(f"[-] Error: {str(e)}")
-            driver.quit()
-            raise
-        
+            driver.save_screenshot("error_screenshot.png")
+            return False
+
     except Exception as e:
         print(f"[-] Error: {str(e)}")
         driver.quit()
