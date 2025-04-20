@@ -15,6 +15,9 @@ import os
 import time
 from dotenv import load_dotenv
 import json
+from PIL import Image, ImageFilter
+import pytesseract
+
 
 # Cargar variables de entorno desde el archivo .env
 from pathlib import Path
@@ -201,12 +204,26 @@ def extract_course_data(driver):
     print("[-] Error crítico: No se pudo extraer la información")
     return []
 
+
+def solve_captcha(image_path):
+    # Carga y convierte a escala de grises
+    img = Image.open(image_path).convert('L')
+    # Opcional: un poco de filtro para limpiar ruido
+    img = img.filter(ImageFilter.MedianFilter())
+    # Binariza (umbral)
+    img = img.point(lambda p: p > 140 and 255)
+    # Configura Tesseract para solo dígitos y mayúsculas
+    custom_config = r'--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    text = pytesseract.image_to_string(img, config=custom_config)
+    return text.strip()
+
+
 def login_and_navigate(driver):
     try:
         print("[+] Iniciando sesión y navegando...")
-        base_url = os.getenv("BASE_URL")
-        upao_user = os.getenv("UPAO_USER")
-        upao_pass = os.getenv("UPAO_PASS")
+        base_url      = os.getenv("BASE_URL")
+        upao_user     = os.getenv("UPAO_USER")
+        upao_pass     = os.getenv("UPAO_PASS")
         base_horarios = os.getenv("BASE_HORARIOS")
 
         if not all([base_url, upao_user, upao_pass, base_horarios]):
@@ -218,32 +235,38 @@ def login_and_navigate(driver):
             EC.presence_of_element_located((By.XPATH, "//table[.//input[@placeholder='usuario']]"))
         )
 
+        # Usuario y contraseña
         username = form_container.find_element(By.XPATH, ".//input[@placeholder='usuario']")
         password = form_container.find_element(By.XPATH, ".//input[@placeholder='contraseña']")
-        username.clear()
-        username.send_keys(upao_user)
+        username.clear();   username.send_keys(upao_user)
         time.sleep(random.uniform(0.5, 1.5))
-        password.clear()
-        password.send_keys(upao_pass)
+        password.clear();   password.send_keys(upao_pass)
         time.sleep(random.uniform(0.5, 1.5))
 
+        # Intento de resolver CAPTCHA con Tesseract
         try:
-            captcha = form_container.find_element(By.ID, "imgCaptcha")
-            captcha.screenshot("captcha.png")
-            code = input("Ingrese el código CAPTCHA: ")
-            if code:
-                form_container.find_element(By.ID, "txt_img").send_keys(code)
-        except:
-            pass
+            captcha_elem = form_container.find_element(By.ID, "imgCaptcha")
+            captcha_path = "captcha.png"
+            captcha_elem.screenshot(captcha_path)
+            code = solve_captcha(captcha_path)
+            print(f"[+] CAPTCHA resuelto automáticamente: {code}")
+            form_container.find_element(By.ID, "txt_img").send_keys(code)
+        except Exception as e:
+            print(f"[-] No pudo resolver CAPTCHA automáticamente: {e}")
 
+        # Enviar formulario
         form_container.find_element(By.ID, "btn_valida").click()
         time.sleep(random.uniform(4, 6))
 
+        # Ir a la página de horarios
         driver.get(base_horarios)
         time.sleep(random.uniform(5, 7))
 
+        # Click en “Horarios de clase pregrado (Trujillo-Piura)”
         pregrado_link = WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Horarios de clase pregrado (Trujillo-Piura)')]"))
+            EC.element_to_be_clickable((By.XPATH,
+                "//a[contains(text(), 'Horarios de clase pregrado (Trujillo-Piura)')]"
+            ))
         )
         pregrado_link.click()
         time.sleep(random.uniform(3, 5))
@@ -251,59 +274,54 @@ def login_and_navigate(driver):
         print(f"[+] Esperando {random_delay('navegacion')} segundos...")
         time.sleep(random_delay('navegacion'))
 
+        # Acceder a ISIA
         print("[+] Accediendo a ISIA...")
-        isia_row = driver.find_element(By.XPATH, "//td[contains(text(), 'ISIA')]/following-sibling::td[1]")
-
-        time.sleep(random.uniform(1.0, 2.5))
+        isia_row = driver.find_element(
+            By.XPATH,
+            "//td[contains(text(), 'ISIA')]/following-sibling::td[1]"
+        )
+        time.sleep(random.uniform(1, 2.5))
         driver.execute_script("arguments[0].click();", isia_row)
 
         print(f"[+] Esperando {random_delay('carga')} segundos...")
         time.sleep(random_delay('carga'))
 
-        try:
-            curso_id = CURSO_ID.strip().upper()
-            if not re.match(r'^[A-Z]{4}-\d{3}$', curso_id):
-                raise ValueError("Formato inválido. Ejemplo: 'ISIA-112', colocaste: " + CURSO_ID)
+        # Seleccionar el curso concreto
+        curso_id = CURSO_ID.strip().upper()
+        if not re.match(r'^[A-Z]{4}-\d{3}$', curso_id):
+            raise ValueError("Formato inválido. Ejemplo: 'ISIA-112', colocaste: " + CURSO_ID)
 
-            xpath = f"//td[" \
-                    f"contains(@onclick, 'f_detalle_cursos') and " \
-                    f"span[@class='letra' and normalize-space()='{curso_id}']" \
-                    f"]"
+        xpath = (
+            f"//td[contains(@onclick, 'f_detalle_cursos') "
+            f"and span[@class='letra' and normalize-space()='{curso_id}']]"
+        )
+        curso_row = WebDriverWait(driver, 20).until(
+            EC.element_to_be_clickable((By.XPATH, xpath))
+        )
+        driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
+            curso_row
+        )
+        time.sleep(random.uniform(0.8, 1.2))
+        driver.execute_script("arguments[0].click();", curso_row)
+        print(f"[+] Clickeando en {curso_id}...")
 
-            curso_row = WebDriverWait(driver, 20).until(
-                EC.element_to_be_clickable((By.XPATH, xpath))
-            )
-
-            onclick = curso_row.get_attribute('onclick')
-            if not onclick.startswith('javascript:f_detalle_cursos'):
-                raise ValueError("Elemento no es un curso válido")
-
-            driver.execute_script("""
-                arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});
-            """, curso_row)
-
-            time.sleep(random.uniform(0.8, 1.2))
-            driver.execute_script("arguments[0].click();", curso_row)
-            print(f"[+] Clickeando en {curso_id}...")
-
-            WebDriverWait(driver, 20).until(
-                EC.visibility_of_element_located(
-                    (By.XPATH, "//div[@id='id_detalle_cursos']//table[@width='90%;' and @border='0' and @cellpadding='5' and @cellspacing='2' and contains(@class, 'tabla_3')]")
+        WebDriverWait(driver, 20).until(
+            EC.visibility_of_element_located(
+                (By.XPATH,
+                 "//div[@id='id_detalle_cursos']//table[contains(@class,'tabla_3')]"
                 )
             )
-            print("[+] Detalle cargado exitosamente")
-
-            return extract_course_data(driver)
-
-        except Exception as e:
-            print(f"[-] Error: {str(e)}")
-            driver.save_screenshot("error_screenshot.png")
-            return False
+        )
+        print("[+] Detalle cargado exitosamente")
+        return extract_course_data(driver)
 
     except Exception as e:
-        print(f"[-] Error: {str(e)}")
+        print(f"[-] Error crítico: {e}")
+        driver.save_screenshot("error_screenshot.png")
         driver.quit()
         raise
+
 
 def crear_pdf(horario, filename):
     try:

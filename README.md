@@ -39,6 +39,38 @@ BASE_URL=https://XXXXXXXXXX.pe/
 BASE_HORARIOS=https://XXXXXXX
 ```
 
+## Instalación de Tesseract OCR
+
+Para que el script de reconocimiento de CAPTCHA funcione, necesitas tener instalado Tesseract OCR y disponible en tu PATH.
+
+### Windows
+
+1. Descarga e instala Tesseract desde  
+   https://github.com/tesseract-ocr/tesseract/releases  
+2. Añade la carpeta de instalación al PATH del sistema:
+   - Abre **Propiedades del sistema** → **Variables de entorno**.
+   - En **Variables del sistema**, edita **Path** y añade:
+     ```
+     C:\Program Files\Tesseract-OCR
+     ```
+3. Verifica en un nuevo CMD:
+   ```bash
+   tesseract --version
+# macOS con Homebrew
+brew install tesseract
+
+# Ubuntu / Debian
+sudo apt-get update
+sudo apt-get install tesseract-ocr
+
+Configuración en Python
+En tu script, si por algún motivo tesseract no queda en el PATH del entorno virtual, define la ruta explícita:
+
+
+import pytesseract
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+
 ## Instalación de dependencias
 
 Instala las dependencias necesarias ejecutando el siguiente comando:
