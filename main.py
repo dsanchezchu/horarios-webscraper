@@ -14,6 +14,7 @@ import random
 import os
 import time
 from dotenv import load_dotenv
+import json
 
 # Cargar variables de entorno desde el archivo .env
 from pathlib import Path
@@ -29,6 +30,7 @@ load_dotenv(dotenv_path=dotenv_path, override=True)
 # Configuración inicial
 CURSO_ID = input("Ingrese ID del curso (ej: ISIA-109): ").strip().upper()
 PDF_FOLDER = "horarios_generados"
+DATA_FOLDER = "data-horatios"
 os.makedirs(PDF_FOLDER, exist_ok=True)
 
 def setup_brave():
@@ -181,6 +183,13 @@ def extract_course_data(driver):
                     })
                 except Exception as e:
                     print(f"[-] Error al extraer datos del bloque: {str(e)}")
+
+            os.makedirs(DATA_FOLDER, exist_ok=True)
+            json_path = os.path.join(DATA_FOLDER, f"{CURSO_ID}_raw.json")
+            with open(json_path, "w", encoding="utf-8") as jf:
+
+                json.dump(data, jf, indent=4, default=str)
+            print(f"[+] Datos crudos guardados en JSON: {json_path}")
 
             return data
         
