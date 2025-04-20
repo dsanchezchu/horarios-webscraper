@@ -2,10 +2,11 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Table, TableStyle
 from reportlab.lib import colors
+from reportlab.lib.units import cm  # Importar cm
 from datetime import datetime
 from itertools import product
 import pandas as pd
@@ -15,11 +16,9 @@ import os
 import time
 from dotenv import load_dotenv
 
-# Cargar variables de entorno
-load_dotenv()
-
 # Configuración inicial
-CURSO_ID = input("Ingrese ID del curso (ej: ISIA-109): ").strip().upper()
+load_dotenv()
+CURSO_IDS = input("Ingrese IDs de los cursos (ej: ISIA-109,ISIA-110): ").strip().upper().split(',')
 PDF_FOLDER = "horarios_generados"
 os.makedirs(PDF_FOLDER, exist_ok=True)
 
@@ -27,25 +26,12 @@ def setup_brave():
     try:
         print("[+] Configurando navegador Brave...")
         options = webdriver.ChromeOptions()
-        
-        # Detectar sistema operativo y ubicar el navegador Brave
-        if os.name == 'nt':  # Windows
-            brave_path = "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
-        elif os.name == 'posix':  # Linux
-            brave_path = "/usr/bin/brave-browser"
-        else:
-            raise EnvironmentError("Sistema operativo no soportado")
-        
-        if not os.path.exists(brave_path):
-            raise FileNotFoundError(f"Brave no encontrado en la ruta: {brave_path}")
-        
-        options.binary_location = brave_path
+        options.binary_location = "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
         options.add_argument("--start-maximized")
         options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--disable-gpu")  # Desactivar aceleración de hardware
-        options.add_argument("--disable-software-rasterizer")  # Desactivar rasterizador de software
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        
+        options.add_argument("--disable-gpu")  # Desactivar GPU
+        options.add_argument("--no-sandbox")  # Modo sin sandbox
+        options.add_argument("--disable-dev-shm-usage")  # Evitar problemas de memoria
         return webdriver.Chrome(options=options)
     except Exception as e:
         print(f"[-] Error al configurar Brave: {str(e)}")
@@ -53,10 +39,10 @@ def setup_brave():
 
 def random_delay(context):
     delays = {
-        'navegacion': random.uniform(5, 10),
-        'carga': random.uniform(3, 6),
-        'combinaciones': random.uniform(2, 5),
-        'extraccion': random.uniform(1, 3)
+        'navegacion': random.uniform(2, 4),
+        'carga': random.uniform(1, 3),
+        'combinaciones': random.uniform(1, 2),
+        'extraccion': random.uniform(0.5, 1.5)
     }
     delay = delays.get(context, random.uniform(1, 3))
     print(f"[+] Retraso de {delay:.2f} segundos para {context}")
@@ -74,246 +60,69 @@ def parse_horario(hora_str):
         print(f"[-] Error al parsear horario: {str(e)}")
         raise
 
-def generate_combinations(secciones):
-    """
-    Genera combinaciones solo con secciones del mismo grupo (T1+P1+L1, T2+P2+L2, etc)
-    """
-    grupos_compatibles = {}
-
-    # Agrupar por curso y número de grupo
+def group_by_liga(secciones):
+    grupos = {}
     for sec in secciones:
-        curso = sec['curso']
-        id_liga = sec['id_liga']
-        grupo_num = id_liga[1:]  # Extrae el número del grupo (ej. T1 → '1')
-        
-        # Clasificar por tipo
-        tipo = None
-        if 'T' in id_liga:
-            tipo = 'teoria'
-        elif 'P' in id_liga:
-            tipo = 'practica'
-        elif 'L' in id_liga:
-            tipo = 'laboratorio'
+        liga_base = sec['id_liga'][0]  # Extraer la parte base (T, P, L)
+        liga_num = sec['id_liga'][1:]  # Extraer el número (1, 2, 3)
+        grupos.setdefault(liga_base, {}).setdefault(liga_num, []).append(sec)
+    return grupos
 
-        if tipo:
-            # Estructura: {curso: {grupo_num: {tipo: [secciones]}}}
-            grupos_compatibles.setdefault(curso, {}).setdefault(grupo_num, {}).setdefault(tipo, []).append(sec)
+def generar_combinaciones_todos_cursos(secciones):
+    from itertools import product
 
-    combinaciones = []
+    # Agrupar secciones por curso
+    cursos = {}
+    for sec in secciones:
+        cursos.setdefault(sec['curso'], []).append(sec)
     
-    for curso, grupos in grupos_compatibles.items():
-        for grupo_num, componentes in grupos.items():
-            teoria = componentes.get('teoria', [])
-            practica = componentes.get('practica', [])
-            laboratorio = componentes.get('laboratorio', [])
-            
-            # Validar que exista al menos teoría
-            if not teoria:
-                continue
-                
-            # Generar combinaciones dentro del mismo grupo
-            if practica and laboratorio:
-                # Combinar T + P + L del mismo grupo
-                for t, p, l in product(teoria, practica, laboratorio):
-                    combinaciones.append([t, p, l])
-            elif practica:
-                # Combinar T + P del mismo grupo
-                for t, p in product(teoria, practica):
-                    combinaciones.append([t, p])
-            elif laboratorio:
-                # Combinar T + L del mismo grupo (si aplica)
-                for t, l in product(teoria, laboratorio):
-                    combinaciones.append([t, l])
-            else:
-                # Solo teoría (si no hay otros componentes)
-                combinaciones.extend(teoria)
-
+    # Generar todas las combinaciones posibles
+    combinaciones = list(product(*cursos.values()))
     return combinaciones
 
-def extract_course_data(driver):
-    data = []
-    max_attempts = 3
-    attempt = 0
-
-    while attempt < max_attempts:
-        try:
-            print("[+] Esperando carga de los cursos...")
-            WebDriverWait(driver, 20).until(
-                EC.visibility_of_element_located((By.ID, "id_detalle_cursos"))
-            )
-
-            # Extraer bloques de cursos
-            print("[+] Extrayendo información de los cursos...")
-            course_blocks = driver.find_elements(By.XPATH, "//div[@style='border-bottom:0px solid #C0C0C0;margin-bottom:30px;margin-left:5px;']")
-
-            for block in course_blocks:
-                try:
-                    nrc = block.find_element(By.XPATH, ".//td[contains(text(), 'NRC:')]/b").text.strip()
-                    id_liga = block.find_element(By.XPATH, ".//td[contains(text(), 'ID LIGA:')]/b").text.strip()
-                    id_docente = block.find_elements(By.XPATH, ".//td[@class='e_fila_table3']")[1].text.strip()
-                    docente = block.find_element(By.XPATH, ".//td[@class='e_fila_table4']").text.strip()
-                    
-                    horarios = []
-                    schedule_rows = block.find_elements(By.XPATH, ".//tr[@style='background:#FFFFFF;font-size:12px;']")
-                    
-                    for row in schedule_rows:
-                        columns = row.find_elements(By.TAG_NAME, "td")
-                        dia = columns[2].text.strip()
-                        hora = columns[3].text.strip()
-                        hora_inicio, hora_fin = parse_horario(hora).values()
-                        horarios.append({"nrc": nrc, "dia": dia, "hora_inicio": hora_inicio, "hora_fin": hora_fin, "docente": docente})
-
-                    data.append({
-                        "curso": CURSO_ID,
-                        "nrc": nrc,
-                        "id_liga": id_liga,
-                        "id_docente": id_docente,
-                        "docente": docente,
-                        "horarios": horarios
-                    })
-                except Exception as e:
-                    print(f"[-] Error al extraer datos del bloque: {str(e)}")
-
-            return data
-        
-        except Exception as e:
-            attempt += 1
-            print(f"[-] Intento {attempt}/{max_attempts} fallido: {str(e)}")
-            time.sleep(random.uniform(2, 4))
-
-    print("[-] Error crítico: No se pudo extraer la información")
-    return []
-
-def login_and_navigate(driver):
-    try:
-        print("[+] Iniciando sesión y navegando...")
-        driver.get(os.getenv("BASE_URL"))
-        
-        form_container = WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.XPATH, "//table[.//input[@placeholder='usuario']]"))
-        )
-        
-        username = form_container.find_element(By.XPATH, ".//input[@placeholder='usuario']")
-        password = form_container.find_element(By.XPATH, ".//input[@placeholder='contraseña']")
-        username.send_keys(os.getenv("UPAO_USER"))
-        time.sleep(random.uniform(0.5, 1.5))
-        password.send_keys(os.getenv("UPAO_PASS"))
-        time.sleep(random.uniform(0.5, 1.5))
-        
-        try:
-            captcha = form_container.find_element(By.ID, "imgCaptcha")
-            captcha.screenshot("captcha.png")
-            code = input("Ingrese el código CAPTCHA: ")
-            if code:
-                form_container.find_element(By.ID, "txt_img").send_keys(code)
-        except:
-            pass
-        
-        form_container.find_element(By.ID, "btn_valida").click()
-        time.sleep(random.uniform(4, 6))
-        
-        driver.get(os.getenv("BASE_HORARIOS"))
-        time.sleep(random.uniform(5, 7))
-        
-        pregrado_link = WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Horarios de clase pregrado (Trujillo-Piura)')]"))
-        )
-        pregrado_link.click()
-        time.sleep(random.uniform(3, 5))
-        
-        print(f"[+] Esperando {random_delay('navegacion')} segundos...")
-        time.sleep(random_delay('navegacion'))
-
-        print("[+] Accediendo a ISIA...")
-        isia_row = driver.find_element(By.XPATH, "//td[contains(text(), 'ISIA')]/following-sibling::td[1]")
-        
-        time.sleep(random.uniform(1.0, 2.5))
-        driver.execute_script("arguments[0].click();", isia_row)
-        
-        print(f"[+] Esperando {random_delay('carga')} segundos...")
-        time.sleep(random_delay('carga'))
-
-        try:
-            # Validar formato del código (ej. "ISIA-112")
-            curso_id = CURSO_ID.strip().upper()
-            if not re.match(r'^[A-Z]{4}-\d{3}$', curso_id):
-                raise ValueError("Formato inválido. Ejemplo: 'ISIA-112', colocaste: " + CURSO_ID)
-
-            # XPath optimizado con doble validación
-            xpath = f"//td[" \
-                    f"contains(@onclick, 'f_detalle_cursos') and " \
-                    f"span[@class='letra' and normalize-space()='{curso_id}']" \
-                    f"]"
-            
-            try:
-                # Espera inteligente hasta 20 segundos
-                curso_row = WebDriverWait(driver, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, xpath))
-                )
-            except:
-                print(f"[-] Curso {curso_id} no encontrado")
+def is_horario_valido(horario):
+    df = pd.DataFrame(horario).sort_values(['dia', 'hora_inicio'])
+    for dia, grupo in df.groupby('dia'):
+        times = grupo[['hora_inicio', 'hora_fin']].sort_values('hora_inicio')
+        for i in range(1, len(times)):
+            if times.iloc[i]['hora_inicio'] < times.iloc[i-1]['hora_fin']:
                 return False
-
-            # Verificar atributos críticos
-            onclick = curso_row.get_attribute('onclick')
-            if not onclick.startswith('javascript:f_detalle_cursos'):
-                raise ValueError("Elemento no es un curso válido")
-
-            driver.execute_script("""
-                arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});
-            """, curso_row)
-            
-            time.sleep(random.uniform(0.8, 1.2))  # Espera para animaciones
-            
-            # Ejecutar clic mediante JavaScript
-            driver.execute_script("arguments[0].click();", curso_row)
-            print(f"[+] Clickeando en {curso_id}...")
-
-            # Esperar carga de detalle
-            # WebDriverWait(driver, 15).until(
-            #     EC.visibility_of_element_located(
-            #         (By.XPATH, "//div[@id='id_detalle_cursos'][contains(@style, 'display: block')]")
-            #     )
-            # )
-
-            try:
-                # Esperar carga de detalle
-                WebDriverWait(driver, 20).until(
-                    EC.visibility_of_element_located(
-                        (By.XPATH, "//div[@id='id_detalle_cursos']//table[@width='90%;' and @border='0' and @cellpadding='5' and @cellspacing='2' and contains(@class, 'tabla_3')]")
-                    )
-                )
-                print("[+] Detalle cargado exitosamente")
-                
-                # Extraer datos
-                return extract_course_data(driver)
-                
-            except Exception as e:
-                print(f"[-] Error en carga de detalle: {str(e)}")
-                driver.save_screenshot("error_screenshot.png")  # Captura de pantalla para depuración
-                return False
-
-        except Exception as e:
-            print(f"[-] Error: {str(e)}")
-            driver.quit()
-            raise
-        
-    except Exception as e:
-        print(f"[-] Error: {str(e)}")
-        driver.quit()
-        raise
+    return True
 
 def crear_pdf(horario, filename):
     try:
-        c = canvas.Canvas(filename, pagesize=letter)
-        width, height = letter
-        c.drawString(100, height - 40, f"Horario del curso {CURSO_ID}")
+        # Definir tamaño A4 horizontal
+        A4_HORIZONTAL = (A4[1], A4[0])  # Intercambiar ancho y alto
+        c = canvas.Canvas(filename, pagesize=A4_HORIZONTAL)
+        width, height = A4_HORIZONTAL
         
-        data = [["Curso", "ID Liga", "Día", "Hora Inicio", "Hora Fin", "Docente", "NRC"]]
-        for h in horario:
-            data.append([h['curso'], h['id_liga'], h['dia'], h['hora_inicio'].strftime("%H:%M"), h['hora_fin'].strftime("%H:%M"), h['docente'], h['nrc']])
+        # Crear tabla semanal
+        dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+        dias_abreviados = {'LUN': 'Lunes', 'MAR': 'Martes', 'MIE': 'Miércoles',
+                           'JUE': 'Jueves', 'VIE': 'Viernes', 'SAB': 'Sábado'}
         
-        table = Table(data)
+        # Convertir días abreviados a completos
+        for entry in horario:
+            entry['dia'] = dias_abreviados.get(entry['dia'], entry['dia'])
+        
+        # Obtener horas únicas y ordenadas
+        horas = sorted({h['hora_inicio'] for h in horario}, key=lambda t: t.hour * 60 + t.minute)
+        
+        # Crear datos para la tabla
+        data = [[f"{h.strftime('%H:%M')}"] + [""] * len(dias) for h in horas]
+        
+        # Llenar la tabla con los horarios
+        for entry in horario:
+            hora_idx = horas.index(entry['hora_inicio'])
+            dia_idx = dias.index(entry['dia'])
+            info = f"{entry['curso']}\n{entry['id_liga']}\n{entry['docente']}\nNRC: {entry['nrc']}"  # Incluir NRC
+            data[hora_idx][dia_idx + 1] = info  # +1 porque la primera columna es la hora
+        
+        # Añadir encabezados de días
+        data.insert(0, ["Hora"] + dias)
+        
+        # Crear la tabla
+        table = Table(data, colWidths=[2 * cm] + [5 * cm] * len(dias))  # Ancho de columnas
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -322,59 +131,198 @@ def crear_pdf(horario, filename):
             ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('SPAN', (0, 0), (0, 0)),
         ]))
         
+        # Dibujar la tabla en el PDF
         table.wrapOn(c, width, height)
-        table.drawOn(c, 30, height - 200)
+        table.drawOn(c, 2 * cm, height - (len(data) + 1) * 2 * cm)  # Ajustar posición
         c.save()
-        print(f"[+] PDF generado: {filename}")
     except Exception as e:
-        print(f"[-] Error al crear PDF: {str(e)}")
+        print(f"[-] Error PDF: {str(e)}")
+        raise
+
+def extract_course_data(driver, curso_id):
+    data = []
+    try:
+        WebDriverWait(driver, 20).until(
+            EC.visibility_of_element_located((By.ID, "id_detalle_cursos"))
+        )
+        course_blocks = driver.find_elements(By.XPATH, "//div[contains(@style, 'border-bottom:0px solid #C0C0C0')]")
+        
+        for block in course_blocks:
+            try:
+                nrc = block.find_element(By.XPATH, ".//td[contains(text(), 'NRC:')]/b").text.strip()
+                id_liga = block.find_element(By.XPATH, ".//td[contains(text(), 'ID LIGA:')]/b").text.strip()
+                docente = block.find_element(By.XPATH, ".//td[@class='e_fila_table4']").text.strip()
+                
+                horarios = []
+                schedule_rows = block.find_elements(By.XPATH, ".//tr[contains(@style, 'background:#FFFFFF')]")
+                for row in schedule_rows:
+                    cols = row.find_elements(By.TAG_NAME, "td")
+                    dia = cols[2].text.strip()
+                    hora = cols[3].text.strip()
+                    parsed = parse_horario(hora)
+                    horarios.append({
+                        'dia': dia,
+                        'hora_inicio': parsed['inicio'],
+                        'hora_fin': parsed['fin']
+                    })
+                
+                data.append({
+                    'curso': curso_id,  # Actualizar para múltiples cursos
+                    'nrc': nrc,
+                    'id_liga': id_liga,
+                    'docente': docente,
+                    'horarios': horarios
+                })
+            except Exception as e:
+                print(f"[-] Error en bloque: {str(e)}")
+        return data
+    except Exception as e:
+        print(f"[-] Error extrayendo {curso_id}: {str(e)}")
+        return []
+
+def extract_course_by_id(driver, curso_id):
+    try:
+        print(f"[+] Buscando curso: {curso_id}...")
+        
+        # XPath optimizado con validación de contenido y atributos
+        xpath = f"//td[" \
+                f"contains(@onclick, 'f_detalle_cursos') and " \
+                f"span[@class='letra' and normalize-space()='{curso_id}']" \
+                f"]"
+        
+        # Esperar hasta 20 segundos por el elemento
+        curso_row = WebDriverWait(driver, 20).until(
+            EC.element_to_be_clickable((By.XPATH, xpath))
+        )
+        
+        # Verificar validez del elemento
+        onclick = curso_row.get_attribute('onclick')
+        if not onclick.startswith('javascript:f_detalle_cursos'):
+            raise ValueError(f"[-] Elemento inválido para {curso_id}")
+        
+        # Scroll y clic con JavaScript
+        driver.execute_script("""
+            arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});
+            arguments[0].click();
+        """, curso_row)
+        
+        # Esperar carga del detalle del curso
+        try:
+            WebDriverWait(driver, 20).until(
+                EC.visibility_of_element_located(
+                    (By.XPATH, "//div[@id='id_detalle_cursos']//table[contains(@class, 'tabla_3')]")
+                )
+            )
+        except:
+            print(f"[-] Timeout cargando detalle de {curso_id}")
+            driver.save_screenshot(f"error_{curso_id}.png")
+            return []
+        
+        # Extraer datos
+        data = extract_course_data(driver, curso_id)
+        
+        # Volver a la lista de cursos
+        driver.execute_script("window.location.href = 'javascript:f_show_three();'")
+        time.sleep(random_delay('navegacion'))
+        
+        return data
+
+    except Exception as e:
+        print(f"[-] Error procesando {curso_id}: {str(e)}")
+        return []
+    
+def login_and_navigate(driver):
+    try:
+        driver.get(os.getenv("BASE_URL"))
+        form = WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.XPATH, "//table[.//input[@placeholder='usuario']]"))
+        )
+        form.find_element(By.XPATH, ".//input[@placeholder='usuario']").send_keys(os.getenv("UPAO_USER"))
+        form.find_element(By.XPATH, ".//input[@placeholder='contraseña']").send_keys(os.getenv("UPAO_PASS"))
+        
+        try:
+            captcha = form.find_element(By.ID, "imgCaptcha")
+            captcha.screenshot("captcha.png")
+            code = input("Ingrese CAPTCHA: ")
+            form.find_element(By.ID, "txt_img").send_keys(code)
+        except:
+            pass
+        
+        form.find_element(By.ID, "btn_valida").click()
+        time.sleep(random_delay('navegacion'))
+        
+        driver.get(os.getenv("BASE_HORARIOS"))
+        pregrado = WebDriverWait(driver, 20).until(
+            EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Horarios de clase pregrado')]"))
+        )
+        pregrado.click()
+        time.sleep(random_delay('carga'))
+        
+        isia = driver.find_element(By.XPATH, "//td[contains(text(), 'ISIA')]/following-sibling::td[1]")
+        driver.execute_script("arguments[0].click();", isia)
+        time.sleep(random_delay('carga'))
+        
+        return driver
+    except Exception as e:
+        print(f"[-] Error en login: {str(e)}")
+        driver.quit()
         raise
 
 def main():
     driver = setup_brave()
+    all_secciones = []
     
     try:
-        login = login_and_navigate(driver)
-        # secciones = extract_course_data(login)
-        combinaciones = generate_combinations(login)
+        # Login y navegación inicial
+        driver = login_and_navigate(driver)
+        
+        # Procesar cada curso
+        for curso_id in CURSO_IDS:
+            if not re.match(r'^[A-Z]{4}-\d{3}$', curso_id):
+                print(f"[-] ID inválido: {curso_id}")
+                continue
+                
+            print(f"\n[+] Procesando curso: {curso_id}")
+            curso_data = extract_course_by_id(driver, curso_id)
+            
+            if curso_data:
+                all_secciones.extend(curso_data)
+        
+        # Generar combinaciones de todos los cursos
+        combinaciones = generar_combinaciones_todos_cursos(all_secciones)
         print(f"[+] {len(combinaciones)} combinaciones encontradas")
         
-        validas = 0
-        for i, comb in enumerate(combinaciones, 1):
+        # Generar horarios válidos
+        validos = []
+        for comb in combinaciones:
             horario = []
             for sec in comb:
                 for h in sec['horarios']:
                     horario.append({
                         'curso': sec['curso'],
                         'id_liga': sec['id_liga'],
+                        'nrc': sec['nrc'],  # Incluir NRC
                         'dia': h['dia'],
                         'hora_inicio': h['hora_inicio'],
                         'hora_fin': h['hora_fin'],
-                        'docente': h['docente'],
-                        'nrc': h['nrc']
+                        'docente': sec['docente']
                     })
-            
-            df = pd.DataFrame(horario)
-            df = df.sort_values(['dia', 'hora_inicio'])
-            valido = True
-            
-            for dia, grupo in df.groupby('dia'):
-                for j in range(1, len(grupo)):
-                    if grupo.iloc[j]['hora_inicio'] < grupo.iloc[j-1]['hora_fin']:
-                        valido = False
-                        break
-                if not valido:
+            if is_horario_valido(horario):
+                validos.append(horario)
+                if len(validos) >= 20:  # Limitar a 20 combinaciones
                     break
-            
-            if valido:
-                validas += 1
-                filename = os.path.join(PDF_FOLDER, f"horario_{CURSO_ID}_{validas}.pdf")
-                crear_pdf(horario, filename)
         
-        print(f"[+] {validas} horarios válidos generados en '{PDF_FOLDER}'")
+        print(f"[+] {len(validos)} horarios válidos generados")
         
+        # Crear PDFs para los horarios válidos
+        for i, horario in enumerate(validos):
+            filename = os.path.join(PDF_FOLDER, f"horario_valido_{i+1}.pdf")
+            crear_pdf(horario, filename)
+    
     except Exception as e:
         print(f"[-] Error crítico: {str(e)}")
     finally:
