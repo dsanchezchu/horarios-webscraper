@@ -26,10 +26,6 @@ os.environ.pop("BASE_HORARIOS", None)
 # Recargar el archivo .env
 load_dotenv(dotenv_path=dotenv_path, override=True)
 
-# Verifica que las credenciales sean las correctas
-print("Usuario:", os.getenv("UPAO_USER"))
-print("Contraseña:", os.getenv("UPAO_PASS"))
-
 # Configuración inicial
 CURSO_ID = input("Ingrese ID del curso (ej: ISIA-109): ").strip().upper()
 PDF_FOLDER = "horarios_generados"
