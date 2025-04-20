@@ -26,6 +26,7 @@ os.environ.pop("UPAO_USER", None)
 os.environ.pop("UPAO_PASS", None)
 os.environ.pop("BASE_URL", None)
 os.environ.pop("BASE_HORARIOS", None)
+os.environ.pop("BROWSER", None)
 
 # Recargar el archivo .env
 load_dotenv(dotenv_path=dotenv_path, override=True)
@@ -36,33 +37,63 @@ PDF_FOLDER = "horarios_generados"
 DATA_FOLDER = "data-horatios"
 os.makedirs(PDF_FOLDER, exist_ok=True)
 
-def setup_brave():
-    try:
-        print("[+] Configurando navegador Brave...")
-        options = webdriver.ChromeOptions()
-        
-        # Detectar sistema operativo y ubicar el navegador Brave
-        if os.name == 'nt':  # Windows
-            brave_path = "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
-        elif os.name == 'posix':  # Linux
-            brave_path = "/usr/bin/brave-browser"
-        else:
-            raise EnvironmentError("Sistema operativo no soportado")
-        
-        if not os.path.exists(brave_path):
-            raise FileNotFoundError(f"Brave no encontrado en la ruta: {brave_path}")
-        
-        options.binary_location = brave_path
-        options.add_argument("--start-maximized")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--disable-gpu")  # Desactivar aceleración de hardware
-        options.add_argument("--disable-software-rasterizer")  # Desactivar rasterizador de software
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        
-        return webdriver.Chrome(options=options)
-    except Exception as e:
-        print(f"[-] Error al configurar Brave: {str(e)}")
-        raise
+
+def setup_browser():
+    from selenium.webdriver.chrome.options import Options as ChromeOptions
+    from selenium.webdriver.edge.options import Options as EdgeOptions
+
+    print("[+] Configurando navegador genérico...")
+    # Opciones compartidas
+    common_args = [
+        "--start-maximized",
+        "--disable-blink-features=AutomationControlled",
+        "--disable-gpu",
+        "--disable-software-rasterizer"
+    ]
+
+    BROWSERS = {
+        "chrome": {
+            "nt":  r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            "posix": "/usr/bin/google-chrome"
+        },
+        "brave": {
+            "nt":  r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+            "posix": "/usr/bin/brave-browser"
+        },
+        "edge": {
+            "nt":  r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            "posix": "/usr/bin/microsoft-edge"
+        },
+    }
+
+    preferred = os.getenv("BROWSER", "").lower()
+    candidates = [preferred] if preferred in BROWSERS else BROWSERS.keys()
+
+    for name in candidates:
+        path = BROWSERS[name].get(os.name)
+        if path and os.path.exists(path):
+            print(f"[+] Usando {name.title()} en: {path}")
+
+            if name == "edge":
+                opts = EdgeOptions()
+                opts.use_chromium = True
+                for a in common_args:
+                    opts.add_argument(a)
+                opts.binary_location = path
+                return webdriver.Edge(options=opts)
+
+            else:  # chrome o brave
+                opts = ChromeOptions()
+                for a in common_args:
+                    opts.add_argument(a)
+                opts.binary_location = path
+                return webdriver.Chrome(options=opts)
+
+    raise FileNotFoundError(
+        "No se encontró ningún navegador Chromium‑based. "
+        "Instala Chrome, Brave o Edge, o fija BROWSER en tu .env (chrome, brave o edge)."
+    )
+
 
 def random_delay(context):
     delays = {
@@ -401,7 +432,7 @@ def crear_pdf(horario, filename):
         raise
 
 def main():
-    driver = setup_brave()
+    driver = setup_browser()
     
     try:
         login = login_and_navigate(driver)
