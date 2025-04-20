@@ -2,7 +2,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import letter, A4
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Table, TableStyle
 from reportlab.lib import colors
@@ -307,15 +307,53 @@ def login_and_navigate(driver):
 
 def crear_pdf(horario, filename):
     try:
-        c = canvas.Canvas(filename, pagesize=letter)
-        width, height = letter
-        c.drawString(100, height - 40, f"Horario del curso {CURSO_ID}")
-        
-        data = [["Curso", "ID Liga", "Día", "Hora Inicio", "Hora Fin", "Docente", "NRC"]]
-        for h in horario:
-            data.append([h['curso'], h['id_liga'], h['dia'], h['hora_inicio'].strftime("%H:%M"), h['hora_fin'].strftime("%H:%M"), h['docente'], h['nrc']])
-        
-        table = Table(data)
+        # Definir tamaño A4 horizontal
+        A4_HORIZONTAL = (A4[1], A4[0])  # Intercambiar ancho y alto
+        c = canvas.Canvas(filename, pagesize=A4_HORIZONTAL)
+        width, height = A4_HORIZONTAL
+
+        # Crear tabla semanal
+        dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+        dias_abreviados = {'LUN': 'Lunes', 'MAR': 'Martes', 'MIE': 'Miércoles',
+                           'JUE': 'Jueves', 'VIE': 'Viernes', 'SAB': 'Sábado'}
+
+        # Convertir días abreviados a completos
+        for entry in horario:
+            entry['dia'] = dias_abreviados.get(entry['dia'], entry['dia'])
+
+        # Obtener horas únicas y ordenadas
+        horas = sorted({h['hora_inicio'] for h in horario}, key=lambda t: t.hour * 60 + t.minute)
+
+        # Crear datos para la tabla
+        data = [[f"{h.strftime('%H:%M')}"] + [""] * len(dias) for h in horas]
+
+        # Llenar la tabla con los horarios
+        for entry in horario:
+            hora_idx = horas.index(entry['hora_inicio'])
+            dia_idx = dias.index(entry['dia'])
+            info = f"{entry['curso']}\n{entry['id_liga']}\n{entry['docente']}\nNRC: {entry['nrc']}"
+            data[hora_idx][dia_idx + 1] = info  # +1 porque la primera columna es la hora
+
+        # Añadir encabezados de días
+        data.insert(0, ["Hora"] + dias)
+
+        # Calcular dimensiones disponibles para la tabla
+        total_width = width * 0.95  # 95% del ancho
+        total_height = height * 0.90  # 90% de la altura
+
+        # Ancho de columnas
+        hora_col_width = total_width * 0.15  # 15% para "Hora"
+        dias_col_width = (total_width - hora_col_width) / len(dias)
+        col_widths = [hora_col_width] + [dias_col_width] * len(dias)
+
+        # Alto de filas (todas iguales)
+        row_height = total_height / len(data)
+        row_heights = [row_height] * len(data)
+
+        # Crear tabla
+        table = Table(data, colWidths=col_widths, rowHeights=row_heights)
+
+        # Estilos
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -324,14 +362,24 @@ def crear_pdf(horario, filename):
             ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]))
-        
+
+        # Calcular tamaño de la tabla
+        table_width, table_height = table.wrap(0, 0)
+
+        # Calcular posición centrada
+        x = (width - table_width) / 2
+        y = (height - table_height) / 2
+
+        # Dibujar la tabla centrada
         table.wrapOn(c, width, height)
-        table.drawOn(c, 30, height - 200)
+        table.drawOn(c, x, y)
+
+        # Guardar PDF
         c.save()
-        print(f"[+] PDF generado: {filename}")
     except Exception as e:
-        print(f"[-] Error al crear PDF: {str(e)}")
+        print(f"[-] Error PDF: {str(e)}")
         raise
 
 def main():
