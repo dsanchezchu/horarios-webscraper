@@ -1,0 +1,163 @@
+[
+    {
+        "curso": "ISIA-112",
+        "nrc": "9607",
+        "id_liga": "T1",
+        "id_docente": "000000003",
+        "docente": "CABALLERO ALVARADO ARMANDO JAVIER",
+        "horarios": [
+            {
+                "nrc": "9607",
+                "dia": "MAR",
+                "hora_inicio": "07:00:00",
+                "hora_fin": "07:50:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            },
+            {
+                "nrc": "9607",
+                "dia": "MAR",
+                "hora_inicio": "07:55:00",
+                "hora_fin": "08:45:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            }
+        ]
+    },
+    {
+        "curso": "ISIA-112",
+        "nrc": "9608",
+        "id_liga": "P1",
+        "id_docente": "000000003",
+        "docente": "CABALLERO ALVARADO ARMANDO JAVIER",
+        "horarios": [
+            {
+                "nrc": "9608",
+                "dia": "MAR",
+                "hora_inicio": "08:50:00",
+                "hora_fin": "09:40:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            },
+            {
+                "nrc": "9608",
+                "dia": "MAR",
+                "hora_inicio": "09:45:00",
+                "hora_fin": "10:35:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            }
+        ]
+    },
+    {
+        "curso": "ISIA-112",
+        "nrc": "9609",
+        "id_liga": "L1",
+        "id_docente": "000000003",
+        "docente": "CABALLERO ALVARADO ARMANDO JAVIER",
+        "horarios": [
+            {
+                "nrc": "9609",
+                "dia": "MAR",
+                "hora_inicio": "10:40:00",
+                "hora_fin": "11:30:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            },
+            {
+                "nrc": "9609",
+                "dia": "MAR",
+                "hora_inicio": "11:35:00",
+                "hora_fin": "12:25:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            }
+        ]
+    },
+    {
+        "curso": "ISIA-112",
+        "nrc": "9610",
+        "id_liga": "L1",
+        "id_docente": "000000003",
+        "docente": "CABALLERO ALVARADO ARMANDO JAVIER",
+        "horarios": [
+            {
+                "nrc": "9610",
+                "dia": "MIE",
+                "hora_inicio": "11:35:00",
+                "hora_fin": "12:25:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            },
+            {
+                "nrc": "9610",
+                "dia": "MIE",
+                "hora_inicio": "12:30:00",
+                "hora_fin": "13:20:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            }
+        ]
+    },
+    {
+        "curso": "ISIA-112",
+        "nrc": "9611",
+        "id_liga": "T2",
+        "id_docente": "000000003",
+        "docente": "CABALLERO ALVARADO ARMANDO JAVIER",
+        "horarios": [
+            {
+                "nrc": "9611",
+                "dia": "VIE",
+                "hora_inicio": "15:15:00",
+                "hora_fin": "16:05:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            },
+            {
+                "nrc": "9611",
+                "dia": "VIE",
+                "hora_inicio": "16:10:00",
+                "hora_fin": "17:00:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            }
+        ]
+    },
+    {
+        "curso": "ISIA-112",
+        "nrc": "9612",
+        "id_liga": "P2",
+        "id_docente": "000000003",
+        "docente": "CABALLERO ALVARADO ARMANDO JAVIER",
+        "horarios": [
+            {
+                "nrc": "9612",
+                "dia": "VIE",
+                "hora_inicio": "17:05:00",
+                "hora_fin": "17:55:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            },
+            {
+                "nrc": "9612",
+                "dia": "VIE",
+                "hora_inicio": "18:00:00",
+                "hora_fin": "18:50:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            }
+        ]
+    },
+    {
+        "curso": "ISIA-112",
+        "nrc": "9613",
+        "id_liga": "L2",
+        "id_docente": "000000003",
+        "docente": "CABALLERO ALVARADO ARMANDO JAVIER",
+        "horarios": [
+            {
+                "nrc": "9613",
+                "dia": "VIE",
+                "hora_inicio": "18:55:00",
+                "hora_fin": "19:45:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            },
+            {
+                "nrc": "9613",
+                "dia": "VIE",
+                "hora_inicio": "19:50:00",
+                "hora_fin": "20:40:00",
+                "docente": "CABALLERO ALVARADO ARMANDO JAVIER"
+            }
+        ]
+    }
+]

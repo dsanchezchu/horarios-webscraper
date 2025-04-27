@@ -34,7 +34,7 @@ load_dotenv(dotenv_path=dotenv_path, override=True)
 # Configuración inicial
 CURSO_ID = input("Ingrese ID del curso (ej: ISIA-109): ").strip().upper()
 PDF_FOLDER = "horarios_generados"
-DATA_FOLDER = "data-horatios"
+DATA_FOLDER = "data-horarios"
 os.makedirs(PDF_FOLDER, exist_ok=True)
 
 
