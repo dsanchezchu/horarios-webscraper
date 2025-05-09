@@ -22,6 +22,9 @@ CURSO_IDS = input("Ingrese IDs de los cursos (ej: ISIA-109,ISIA-110): ").strip()
 PDF_FOLDER = "horarios_generados"
 os.makedirs(PDF_FOLDER, exist_ok=True)
 
+CSV_FOLDER = "csv_horarios"
+os.makedirs(CSV_FOLDER, exist_ok=True)
+
 def setup_brave():
     try:
         print("[+] Configurando navegador Brave...")
@@ -272,10 +275,36 @@ def login_and_navigate(driver):
         driver.quit()
         raise
 
+def guardar_horarios_csv(horarios, filename):
+    try:
+        # Crear una lista de diccionarios para cada entrada de horario
+        rows = []
+        for idx, horario in enumerate(horarios, start=1):
+            for entry in horario:
+                rows.append({
+                    '#horario': idx,
+                    'Curso': entry['curso'],
+                    'ID Liga': entry['id_liga'],
+                    'NRC': entry['nrc'],
+                    'Día': entry['dia'],
+                    'Hora Inicio': entry['hora_inicio'].strftime('%H:%M'),
+                    'Hora Fin': entry['hora_fin'].strftime('%H:%M'),
+                    'Docente': entry['docente']
+                })
+        
+        # Crear un DataFrame y exportarlo a CSV
+        df = pd.DataFrame(rows)
+        df.to_csv(filename, index=False, encoding='utf-8-sig')
+        print(f"[+] Horarios guardados en {filename}")
+    except Exception as e:
+        print(f"[-] Error al guardar CSV: {str(e)}")
+        raise
+    
 def main():
     driver = setup_brave()
     all_secciones = []
-    
+    validos = []
+
     try:
         # Login y navegación inicial
         driver = login_and_navigate(driver)
@@ -297,7 +326,6 @@ def main():
         print(f"[+] {len(combinaciones)} combinaciones encontradas")
         
         # Generar horarios válidos
-        validos = []
         for comb in combinaciones:
             horario = []
             for sec in comb:
@@ -313,15 +341,17 @@ def main():
                     })
             if is_horario_valido(horario):
                 validos.append(horario)
-                if len(validos) >= 20:  # Limitar a 20 combinaciones
+                if len(validos) >= 100:  # Guardar hasta 100 combinaciones
                     break
         
         print(f"[+] {len(validos)} horarios válidos generados")
         
-        # Crear PDFs para los horarios válidos
-        for i, horario in enumerate(validos):
+        # Crear PDFs para los horarios válidos (solo los primeros 20)
+        for i, horario in enumerate(validos[:20]):
             filename = os.path.join(PDF_FOLDER, f"horario_valido_{i+1}.pdf")
             crear_pdf(horario, filename)
+        csv_filename = os.path.join(CSV_FOLDER, "horarios_validos.csv")
+        guardar_horarios_csv(validos, csv_filename)
     
     except Exception as e:
         print(f"[-] Error crítico: {str(e)}")
