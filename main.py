@@ -4,17 +4,18 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-from reportlab.platypus import Table, TableStyle
+from reportlab.platypus import Table, TableStyle, Paragraph
 from reportlab.lib import colors
-from reportlab.lib.units import cm  # Importar cm
+from reportlab.lib.units import cm
 from datetime import datetime
-from itertools import product
 import pandas as pd
 import re
 import random
 import os
 import time
 from dotenv import load_dotenv
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.enums import TA_CENTER
 
 # Configuración inicial
 load_dotenv()
@@ -128,39 +129,49 @@ def crear_pdf(horario, filename):
         for entry in horario:
             entry['dia'] = dias_abreviados.get(entry['dia'], entry['dia'])
 
-        # Obtener horas únicas y ordenadas
-        horas = sorted({h['hora_inicio'] for h in horario}, key=lambda t: t.hour * 60 + t.minute)
+        #obtener bloques únicos
+        bloques = sorted({(entry['hora_inicio'], entry['hora_fin']) for entry in horario},
+                         key=lambda x: x[0].hour * 60 + x[0].minute)
 
-        # Crear datos para la tabla
-        data = [[f"{h.strftime('%H:%M')}"] + [""] * len(dias) for h in horas]
+        #construir tabla vacía
+        data = []
+        for inicio, fin in bloques:
+            fila = [f"{inicio.strftime('%H:%M')} - {fin.strftime('%H:%M')}"] + [""] * len(dias)
+            data.append(fila)
 
-        # Llenar la tabla con los horarios
+        #Rellenar la tabla con los cursos
         for entry in horario:
-            hora_idx = horas.index(entry['hora_inicio'])
+            bloque_idx = next(i for i, (ini, fin) in enumerate(bloques)
+                              if ini == entry['hora_inicio'] and fin == entry['hora_fin'])
             dia_idx = dias.index(entry['dia'])
-            info = f"{entry['curso']}\n{entry['id_liga']}\n{entry['docente']}\nNRC: {entry['nrc']}"
-            data[hora_idx][dia_idx + 1] = info  # +1 porque la primera columna es la hora
 
-        # Añadir encabezados de días
+            styles = getSampleStyleSheet()
+            style = styles['Normal']
+            style.fontSize = 7
+            style.alignment = TA_CENTER
+
+            docente_small = f"<font size='7'>{entry['docente']}</font>"
+            contenido = f"{entry['curso']}<br/>{entry['id_liga']}<br/>NRC: {entry['nrc']}"
+            data[bloque_idx][dia_idx + 1] = Paragraph(contenido, style)
+
+        #Añadir encabezados de días
         data.insert(0, ["Hora"] + dias)
 
-        # Calcular dimensiones disponibles para la tabla
-        total_width = width * 0.95  # 95% del ancho
-        total_height = height * 0.90  # 90% de la altura
+        #Calcular dimensiones disponibles para la tabla
+        total_width = width * 0.95
+        total_height = height * 0.90
 
-        # Ancho de columnas
-        hora_col_width = total_width * 0.15  # 15% para "Hora"
+        #Ancho de columnas
+        hora_col_width = total_width * 0.15
         dias_col_width = (total_width - hora_col_width) / len(dias)
         col_widths = [hora_col_width] + [dias_col_width] * len(dias)
 
-        # Alto de filas (todas iguales)
+        #Alto de filas (todas iguales)
         row_height = total_height / len(data)
         row_heights = [row_height] * len(data)
 
-        # Crear tabla
         table = Table(data, colWidths=col_widths, rowHeights=row_heights)
 
-        # Estilos
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -172,18 +183,17 @@ def crear_pdf(horario, filename):
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]))
 
-        # Calcular tamaño de la tabla
+        #Calcular tamaño de la tabla
         table_width, table_height = table.wrap(0, 0)
 
-        # Calcular posición centrada
+        #Calcular posición centrada
         x = (width - table_width) / 2
         y = (height - table_height) / 2
 
-        # Dibujar la tabla centrada
+        #Dibujar la tabla centrada
         table.wrapOn(c, width, height)
         table.drawOn(c, x, y)
 
-        # Guardar PDF
         c.save()
     except Exception as e:
         print(f"[-] Error PDF: {str(e)}")
@@ -217,7 +227,7 @@ def extract_course_data(driver, curso_id):
                     })
                 
                 data.append({
-                    'curso': curso_id,  # Actualizar para múltiples cursos
+                    'curso': curso_id,
                     'nrc': nrc,
                     'id_liga': id_liga,
                     'docente': docente,
