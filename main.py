@@ -74,14 +74,34 @@ def group_by_liga(secciones):
 def generar_combinaciones_todos_cursos(secciones):
     from itertools import product
 
-    # Agrupar secciones por curso
     cursos = {}
+
+    # Agrupar secciones por curso
     for sec in secciones:
         cursos.setdefault(sec['curso'], []).append(sec)
-    
-    # Generar todas las combinaciones posibles
-    combinaciones = list(product(*cursos.values()))
-    return combinaciones
+
+    combinaciones_por_curso = {}
+
+    for curso, secciones_curso in cursos.items():
+        # Agrupar por número de liga: L1, T1, P1 => grupo 1, etc.
+        ligas_por_num = {}
+        for sec in secciones_curso:
+            tipo = sec['id_liga'][0]  # L, T, P
+            num = sec['id_liga'][1:]  # 1, 2, 3...
+            ligas_por_num.setdefault(num, {}).setdefault(tipo, []).append(sec)
+
+        # Generar combinaciones dentro del curso, respetando cada grupo de liga
+        combinaciones_validas = []
+        for num, tipos in ligas_por_num.items():
+            partes = list(tipos.values())  # listas de secciones por tipo
+            for comb in product(*partes):
+                combinaciones_validas.append(comb)
+        
+        combinaciones_por_curso[curso] = combinaciones_validas
+
+    # Ahora combinar entre cursos
+    return list(product(*combinaciones_por_curso.values()))
+
 
 def is_horario_valido(horario):
     df = pd.DataFrame(horario).sort_values(['dia', 'hora_inicio'])
@@ -98,34 +118,49 @@ def crear_pdf(horario, filename):
         A4_HORIZONTAL = (A4[1], A4[0])  # Intercambiar ancho y alto
         c = canvas.Canvas(filename, pagesize=A4_HORIZONTAL)
         width, height = A4_HORIZONTAL
-        
+
         # Crear tabla semanal
         dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
         dias_abreviados = {'LUN': 'Lunes', 'MAR': 'Martes', 'MIE': 'Miércoles',
                            'JUE': 'Jueves', 'VIE': 'Viernes', 'SAB': 'Sábado'}
-        
+
         # Convertir días abreviados a completos
         for entry in horario:
             entry['dia'] = dias_abreviados.get(entry['dia'], entry['dia'])
-        
+
         # Obtener horas únicas y ordenadas
         horas = sorted({h['hora_inicio'] for h in horario}, key=lambda t: t.hour * 60 + t.minute)
-        
+
         # Crear datos para la tabla
         data = [[f"{h.strftime('%H:%M')}"] + [""] * len(dias) for h in horas]
-        
+
         # Llenar la tabla con los horarios
         for entry in horario:
             hora_idx = horas.index(entry['hora_inicio'])
             dia_idx = dias.index(entry['dia'])
-            info = f"{entry['curso']}\n{entry['id_liga']}\n{entry['docente']}\nNRC: {entry['nrc']}"  # Incluir NRC
+            info = f"{entry['curso']}\n{entry['id_liga']}\n{entry['docente']}\nNRC: {entry['nrc']}"
             data[hora_idx][dia_idx + 1] = info  # +1 porque la primera columna es la hora
-        
+
         # Añadir encabezados de días
         data.insert(0, ["Hora"] + dias)
-        
-        # Crear la tabla
-        table = Table(data, colWidths=[2 * cm] + [5 * cm] * len(dias))  # Ancho de columnas
+
+        # Calcular dimensiones disponibles para la tabla
+        total_width = width * 0.95  # 95% del ancho
+        total_height = height * 0.90  # 90% de la altura
+
+        # Ancho de columnas
+        hora_col_width = total_width * 0.15  # 15% para "Hora"
+        dias_col_width = (total_width - hora_col_width) / len(dias)
+        col_widths = [hora_col_width] + [dias_col_width] * len(dias)
+
+        # Alto de filas (todas iguales)
+        row_height = total_height / len(data)
+        row_heights = [row_height] * len(data)
+
+        # Crear tabla
+        table = Table(data, colWidths=col_widths, rowHeights=row_heights)
+
+        # Estilos
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -135,12 +170,20 @@ def crear_pdf(horario, filename):
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('SPAN', (0, 0), (0, 0)),
         ]))
-        
-        # Dibujar la tabla en el PDF
+
+        # Calcular tamaño de la tabla
+        table_width, table_height = table.wrap(0, 0)
+
+        # Calcular posición centrada
+        x = (width - table_width) / 2
+        y = (height - table_height) / 2
+
+        # Dibujar la tabla centrada
         table.wrapOn(c, width, height)
-        table.drawOn(c, 2 * cm, height - (len(data) + 1) * 2 * cm)  # Ajustar posición
+        table.drawOn(c, x, y)
+
+        # Guardar PDF
         c.save()
     except Exception as e:
         print(f"[-] Error PDF: {str(e)}")
@@ -328,17 +371,18 @@ def main():
         # Generar horarios válidos
         for comb in combinaciones:
             horario = []
-            for sec in comb:
-                for h in sec['horarios']:
-                    horario.append({
-                        'curso': sec['curso'],
-                        'id_liga': sec['id_liga'],
-                        'nrc': sec['nrc'],  # Incluir NRC
-                        'dia': h['dia'],
-                        'hora_inicio': h['hora_inicio'],
-                        'hora_fin': h['hora_fin'],
-                        'docente': sec['docente']
-                    })
+            for grupo in comb:  # cada 'grupo' es una tupla de secciones del mismo curso
+                for sec in grupo:
+                    for h in sec['horarios']:
+                        horario.append({
+                            'curso': sec['curso'],
+                            'id_liga': sec['id_liga'],
+                            'nrc': sec['nrc'],
+                            'dia': h['dia'],
+                            'hora_inicio': h['hora_inicio'],
+                            'hora_fin': h['hora_fin'],
+                            'docente': sec['docente']
+                        })
             if is_horario_valido(horario):
                 validos.append(horario)
                 if len(validos) >= 100:  # Guardar hasta 100 combinaciones
