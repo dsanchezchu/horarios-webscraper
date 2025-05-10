@@ -16,8 +16,9 @@ import time
 from dotenv import load_dotenv
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.enums import TA_CENTER
+from itertools import product
 
-# Configuración inicial
+# Cargar variables del archivo .env
 load_dotenv()
 CURSO_IDS = input("Ingrese IDs de los cursos (ej: ISIA-109,ISIA-110): ").strip().upper().split(',')
 PDF_FOLDER = "horarios_generados"
@@ -26,6 +27,7 @@ os.makedirs(PDF_FOLDER, exist_ok=True)
 CSV_FOLDER = "csv_horarios"
 os.makedirs(CSV_FOLDER, exist_ok=True)
 
+# Configura el navegador Brave para usar con Selenium
 def setup_brave():
     try:
         print("[+] Configurando navegador Brave...")
@@ -33,14 +35,15 @@ def setup_brave():
         options.binary_location = "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
         options.add_argument("--start-maximized")
         options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--disable-gpu")  # Desactivar GPU
-        options.add_argument("--no-sandbox")  # Modo sin sandbox
-        options.add_argument("--disable-dev-shm-usage")  # Evitar problemas de memoria
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
         return webdriver.Chrome(options=options)
     except Exception as e:
         print(f"[-] Error al configurar Brave: {str(e)}")
         raise
 
+# Genera un retraso aleatorio según el contexto (para parecer navegación humana)
 def random_delay(context):
     delays = {
         'navegacion': random.uniform(2, 4),
@@ -52,6 +55,7 @@ def random_delay(context):
     print(f"[+] Retraso de {delay:.2f} segundos para {context}")
     return delay
 
+# Parsea un rango horario tipo "08:00 AM - 10:00 AM" a objetos time de Python
 def parse_horario(hora_str):
     try:
         formato = "%I:%M %p"
@@ -64,46 +68,44 @@ def parse_horario(hora_str):
         print(f"[-] Error al parsear horario: {str(e)}")
         raise
 
+# Agrupa las secciones por su ID de liga (ej. T1, P1)
 def group_by_liga(secciones):
     grupos = {}
     for sec in secciones:
-        liga_base = sec['id_liga'][0]  # Extraer la parte base (T, P, L)
-        liga_num = sec['id_liga'][1:]  # Extraer el número (1, 2, 3)
+        liga_base = sec['id_liga'][0]
+        liga_num = sec['id_liga'][1:]
         grupos.setdefault(liga_base, {}).setdefault(liga_num, []).append(sec)
     return grupos
 
+# Genera todas las combinaciones posibles por curso, respetando las ligas T1, P1, etc.
 def generar_combinaciones_todos_cursos(secciones):
-    from itertools import product
 
     cursos = {}
 
-    # Agrupar secciones por curso
     for sec in secciones:
         cursos.setdefault(sec['curso'], []).append(sec)
 
     combinaciones_por_curso = {}
 
     for curso, secciones_curso in cursos.items():
-        # Agrupar por número de liga: L1, T1, P1 => grupo 1, etc.
         ligas_por_num = {}
         for sec in secciones_curso:
-            tipo = sec['id_liga'][0]  # L, T, P
-            num = sec['id_liga'][1:]  # 1, 2, 3...
+            tipo = sec['id_liga'][0]
+            num = sec['id_liga'][1:]
             ligas_por_num.setdefault(num, {}).setdefault(tipo, []).append(sec)
 
-        # Generar combinaciones dentro del curso, respetando cada grupo de liga
         combinaciones_validas = []
         for num, tipos in ligas_por_num.items():
-            partes = list(tipos.values())  # listas de secciones por tipo
+            partes = list(tipos.values())
             for comb in product(*partes):
                 combinaciones_validas.append(comb)
         
         combinaciones_por_curso[curso] = combinaciones_validas
 
-    # Ahora combinar entre cursos
     return list(product(*combinaciones_por_curso.values()))
 
 
+# Verifica que no haya traslapes de horarios en un horario completo
 def is_horario_valido(horario):
     df = pd.DataFrame(horario).sort_values(['dia', 'hora_inicio'])
     for dia, grupo in df.groupby('dia'):
@@ -150,7 +152,6 @@ def crear_pdf(horario, filename):
             style.fontSize = 7
             style.alignment = TA_CENTER
 
-            docente_small = f"<font size='7'>{entry['docente']}</font>"
             contenido = f"{entry['curso']}<br/>{entry['id_liga']}<br/>NRC: {entry['nrc']}"
             data[bloque_idx][dia_idx + 1] = Paragraph(contenido, style)
 
@@ -199,6 +200,7 @@ def crear_pdf(horario, filename):
         print(f"[-] Error PDF: {str(e)}")
         raise
 
+# Extrae los datos (NRC, ID LIGA, docente, horarios) del detalle del curso
 def extract_course_data(driver, curso_id):
     data = []
     try:
@@ -240,6 +242,7 @@ def extract_course_data(driver, curso_id):
         print(f"[-] Error extrayendo {curso_id}: {str(e)}")
         return []
 
+#Localiza un curso por ID en la tabla principal y extrae su información
 def extract_course_by_id(driver, curso_id):
     try:
         print(f"[+] Buscando curso: {curso_id}...")
@@ -330,7 +333,6 @@ def login_and_navigate(driver):
 
 def guardar_horarios_csv(horarios, filename):
     try:
-        # Crear una lista de diccionarios para cada entrada de horario
         rows = []
         for idx, horario in enumerate(horarios, start=1):
             for entry in horario:
@@ -345,24 +347,22 @@ def guardar_horarios_csv(horarios, filename):
                     'Docente': entry['docente']
                 })
         
-        # Crear un DataFrame y exportarlo a CSV
         df = pd.DataFrame(rows)
         df.to_csv(filename, index=False, encoding='utf-8-sig')
         print(f"[+] Horarios guardados en {filename}")
     except Exception as e:
         print(f"[-] Error al guardar CSV: {str(e)}")
         raise
-    
+
+# Orquesta el flujo completo: login, extracción, combinaciones, validación y exportación
 def main():
     driver = setup_brave()
     all_secciones = []
     validos = []
 
     try:
-        # Login y navegación inicial
         driver = login_and_navigate(driver)
         
-        # Procesar cada curso
         for curso_id in CURSO_IDS:
             if not re.match(r'^[A-Z]{4}-\d{3}$', curso_id):
                 print(f"[-] ID inválido: {curso_id}")
@@ -374,14 +374,12 @@ def main():
             if curso_data:
                 all_secciones.extend(curso_data)
         
-        # Generar combinaciones de todos los cursos
         combinaciones = generar_combinaciones_todos_cursos(all_secciones)
         print(f"[+] {len(combinaciones)} combinaciones encontradas")
         
-        # Generar horarios válidos
         for comb in combinaciones:
             horario = []
-            for grupo in comb:  # cada 'grupo' es una tupla de secciones del mismo curso
+            for grupo in comb: 
                 for sec in grupo:
                     for h in sec['horarios']:
                         horario.append({
@@ -395,12 +393,11 @@ def main():
                         })
             if is_horario_valido(horario):
                 validos.append(horario)
-                if len(validos) >= 100:  # Guardar hasta 100 combinaciones
+                if len(validos) >= 100:
                     break
         
         print(f"[+] {len(validos)} horarios válidos generados")
         
-        # Crear PDFs para los horarios válidos (solo los primeros 20)
         for i, horario in enumerate(validos[:20]):
             filename = os.path.join(PDF_FOLDER, f"horario_valido_{i+1}.pdf")
             crear_pdf(horario, filename)
