@@ -2,7 +2,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import letter, A4
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Table, TableStyle, Paragraph
 from reportlab.lib import colors
@@ -17,11 +17,19 @@ from dotenv import load_dotenv
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.enums import TA_CENTER
 from itertools import product
+import json
+from pathlib import Path
+dotenv_path = Path('.env')
+os.environ.pop("UPAO_USER", None)
+os.environ.pop("UPAO_PASS", None)
+os.environ.pop("BASE_URL", None)
+os.environ.pop("BASE_HORARIOS", None)
 
-# Cargar variables del archivo .env
-load_dotenv()
+# Recargar el archivo .env
+load_dotenv(dotenv_path=dotenv_path, override=True)
 CURSO_IDS = input("Ingrese IDs de los cursos (ej: ISIA-109,ISIA-110): ").strip().upper().split(',')
 PDF_FOLDER = "horarios_generados"
+DATA_FOLDER = "data-horatios"
 os.makedirs(PDF_FOLDER, exist_ok=True)
 
 CSV_FOLDER = "csv_horarios"
@@ -276,10 +284,52 @@ def extract_course_by_id(driver, curso_id):
                     (By.XPATH, "//div[@id='id_detalle_cursos']//table[contains(@class, 'tabla_3')]")
                 )
             )
+
+            # Extraer bloques de cursos
+            print("[+] Extrayendo información de los cursos...")
+            course_blocks = driver.find_elements(By.XPATH, "//div[@style='border-bottom:0px solid #C0C0C0;margin-bottom:30px;margin-left:5px;']")
+
+            for block in course_blocks:
+                try:
+                    nrc = block.find_element(By.XPATH, ".//td[contains(text(), 'NRC:')]/b").text.strip()
+                    id_liga = block.find_element(By.XPATH, ".//td[contains(text(), 'ID LIGA:')]/b").text.strip()
+                    id_docente = block.find_elements(By.XPATH, ".//td[@class='e_fila_table3']")[1].text.strip()
+                    docente = block.find_element(By.XPATH, ".//td[@class='e_fila_table4']").text.strip()
+                    
+                    horarios = []
+                    schedule_rows = block.find_elements(By.XPATH, ".//tr[@style='background:#FFFFFF;font-size:12px;']")
+                    
+                    for row in schedule_rows:
+                        columns = row.find_elements(By.TAG_NAME, "td")
+                        dia = columns[2].text.strip()
+                        hora = columns[3].text.strip()
+                        hora_inicio, hora_fin = parse_horario(hora).values()
+                        horarios.append({"nrc": nrc, "dia": dia, "hora_inicio": hora_inicio, "hora_fin": hora_fin, "docente": docente})
+
+                    data.append({
+                        "curso": CURSO_ID,
+                        "nrc": nrc,
+                        "id_liga": id_liga,
+                        "id_docente": id_docente,
+                        "docente": docente,
+                        "horarios": horarios
+                    })
+                except Exception as e:
+                    print(f"[-] Error al extraer datos del bloque: {str(e)}")
+
+            os.makedirs(DATA_FOLDER, exist_ok=True)
+            json_path = os.path.join(DATA_FOLDER, f"{CURSO_ID}_raw.json")
+            with open(json_path, "w", encoding="utf-8") as jf:
+
+                json.dump(data, jf, indent=4, default=str)
+            print(f"[+] Datos crudos guardados en JSON: {json_path}")
+
+            return data
         except:
             print(f"[-] Timeout cargando detalle de {curso_id}")
             driver.save_screenshot(f"error_{curso_id}.png")
             return []
+
         
         # Extraer datos
         data = extract_course_data(driver, curso_id)
@@ -296,13 +346,31 @@ def extract_course_by_id(driver, curso_id):
     
 def login_and_navigate(driver):
     try:
-        driver.get(os.getenv("BASE_URL"))
-        form = WebDriverWait(driver, 20).until(
+
+        print("[+] Iniciando sesión y navegando...")
+        base_url = os.getenv("BASE_URL")
+        upao_user = os.getenv("UPAO_USER")
+        upao_pass = os.getenv("UPAO_PASS")
+        base_horarios = os.getenv("BASE_HORARIOS")
+
+        if not all([base_url, upao_user, upao_pass, base_horarios]):
+            raise ValueError("Faltan variables de entorno en el archivo .env")
+
+        driver.get(base_url)
+
+        form_container = WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//table[.//input[@placeholder='usuario']]"))
         )
-        form.find_element(By.XPATH, ".//input[@placeholder='usuario']").send_keys(os.getenv("UPAO_USER"))
-        form.find_element(By.XPATH, ".//input[@placeholder='contraseña']").send_keys(os.getenv("UPAO_PASS"))
-        
+
+        username = form_container.find_element(By.XPATH, ".//input[@placeholder='usuario']")
+        password = form_container.find_element(By.XPATH, ".//input[@placeholder='contraseña']")
+        username.clear()
+        username.send_keys(upao_user)
+        time.sleep(random.uniform(0.5, 1.5))
+        password.clear()
+        password.send_keys(upao_pass)
+        time.sleep(random.uniform(0.5, 1.5))
+
         try:
             captcha = form.find_element(By.ID, "imgCaptcha")
             captcha.screenshot("captcha.png")
@@ -310,22 +378,70 @@ def login_and_navigate(driver):
             form.find_element(By.ID, "txt_img").send_keys(code)
         except:
             pass
-        
-        form.find_element(By.ID, "btn_valida").click()
-        time.sleep(random_delay('navegacion'))
-        
-        driver.get(os.getenv("BASE_HORARIOS"))
-        pregrado = WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Horarios de clase pregrado')]"))
+
+        form_container.find_element(By.ID, "btn_valida").click()
+        time.sleep(random.uniform(4, 6))
+
+        driver.get(base_horarios)
+        time.sleep(random.uniform(5, 7))
+
+        pregrado_link = WebDriverWait(driver, 20).until(
+            EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Horarios de clase pregrado (Trujillo-Piura)')]"))
         )
-        pregrado.click()
+        pregrado_link.click()
+        time.sleep(random.uniform(3, 5))
+
+        print(f"[+] Esperando {random_delay('navegacion')} segundos...")
+        time.sleep(random_delay('navegacion'))
+
+        print("[+] Accediendo a ISIA...")
+        isia_row = driver.find_element(By.XPATH, "//td[contains(text(), 'ISIA')]/following-sibling::td[1]")
+
+        time.sleep(random.uniform(1.0, 2.5))
+        driver.execute_script("arguments[0].click();", isia_row)
+
+        print(f"[+] Esperando {random_delay('carga')} segundos...")
         time.sleep(random_delay('carga'))
-        
-        isia = driver.find_element(By.XPATH, "//td[contains(text(), 'ISIA')]/following-sibling::td[1]")
-        driver.execute_script("arguments[0].click();", isia)
-        time.sleep(random_delay('carga'))
-        
-        return driver
+
+        try:
+            curso_id = CURSO_ID.strip().upper()
+            if not re.match(r'^[A-Z]{4}-\d{3}$', curso_id):
+                raise ValueError("Formato inválido. Ejemplo: 'ISIA-112', colocaste: " + CURSO_ID)
+
+            xpath = f"//td[" \
+                    f"contains(@onclick, 'f_detalle_cursos') and " \
+                    f"span[@class='letra' and normalize-space()='{curso_id}']" \
+                    f"]"
+
+            curso_row = WebDriverWait(driver, 20).until(
+                EC.element_to_be_clickable((By.XPATH, xpath))
+            )
+
+            onclick = curso_row.get_attribute('onclick')
+            if not onclick.startswith('javascript:f_detalle_cursos'):
+                raise ValueError("Elemento no es un curso válido")
+
+            driver.execute_script("""
+                arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});
+            """, curso_row)
+
+            time.sleep(random.uniform(0.8, 1.2))
+            driver.execute_script("arguments[0].click();", curso_row)
+            print(f"[+] Clickeando en {curso_id}...")
+
+            WebDriverWait(driver, 20).until(
+                EC.visibility_of_element_located(
+                    (By.XPATH, "//div[@id='id_detalle_cursos']//table[@width='90%;' and @border='0' and @cellpadding='5' and @cellspacing='2' and contains(@class, 'tabla_3')]")
+                )
+            )
+            print("[+] Detalle cargado exitosamente")
+
+            return extract_course_data(driver)
+
+        except Exception as e:
+            print(f"[-] Error: {str(e)}")
+            driver.save_screenshot("error_screenshot.png")
+            return False
     except Exception as e:
         print(f"[-] Error en login: {str(e)}")
         driver.quit()
@@ -333,25 +449,81 @@ def login_and_navigate(driver):
 
 def guardar_horarios_csv(horarios, filename):
     try:
-        rows = []
-        for idx, horario in enumerate(horarios, start=1):
-            for entry in horario:
-                rows.append({
-                    '#horario': idx,
-                    'Curso': entry['curso'],
-                    'ID Liga': entry['id_liga'],
-                    'NRC': entry['nrc'],
-                    'Día': entry['dia'],
-                    'Hora Inicio': entry['hora_inicio'].strftime('%H:%M'),
-                    'Hora Fin': entry['hora_fin'].strftime('%H:%M'),
-                    'Docente': entry['docente']
-                })
-        
-        df = pd.DataFrame(rows)
-        df.to_csv(filename, index=False, encoding='utf-8-sig')
-        print(f"[+] Horarios guardados en {filename}")
+
+        # Definir tamaño A4 horizontal
+        A4_HORIZONTAL = (A4[1], A4[0])  # Intercambiar ancho y alto
+        c = canvas.Canvas(filename, pagesize=A4_HORIZONTAL)
+        width, height = A4_HORIZONTAL
+
+        # Crear tabla semanal
+        dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+        dias_abreviados = {'LUN': 'Lunes', 'MAR': 'Martes', 'MIE': 'Miércoles',
+                           'JUE': 'Jueves', 'VIE': 'Viernes', 'SAB': 'Sábado'}
+
+        # Convertir días abreviados a completos
+        for entry in horario:
+            entry['dia'] = dias_abreviados.get(entry['dia'], entry['dia'])
+
+        # Obtener horas únicas y ordenadas
+        horas = sorted({h['hora_inicio'] for h in horario}, key=lambda t: t.hour * 60 + t.minute)
+
+        # Crear datos para la tabla
+        data = [[f"{h.strftime('%H:%M')}"] + [""] * len(dias) for h in horas]
+
+        # Llenar la tabla con los horarios
+        for entry in horario:
+            hora_idx = horas.index(entry['hora_inicio'])
+            dia_idx = dias.index(entry['dia'])
+            info = f"{entry['curso']}\n{entry['id_liga']}\n{entry['docente']}\nNRC: {entry['nrc']}"
+            data[hora_idx][dia_idx + 1] = info  # +1 porque la primera columna es la hora
+
+        # Añadir encabezados de días
+        data.insert(0, ["Hora"] + dias)
+
+        # Calcular dimensiones disponibles para la tabla
+        total_width = width * 0.95  # 95% del ancho
+        total_height = height * 0.90  # 90% de la altura
+
+        # Ancho de columnas
+        hora_col_width = total_width * 0.15  # 15% para "Hora"
+        dias_col_width = (total_width - hora_col_width) / len(dias)
+        col_widths = [hora_col_width] + [dias_col_width] * len(dias)
+
+        # Alto de filas (todas iguales)
+        row_height = total_height / len(data)
+        row_heights = [row_height] * len(data)
+
+        # Crear tabla
+        table = Table(data, colWidths=col_widths, rowHeights=row_heights)
+
+        # Estilos
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+
+        # Calcular tamaño de la tabla
+        table_width, table_height = table.wrap(0, 0)
+
+        # Calcular posición centrada
+        x = (width - table_width) / 2
+        y = (height - table_height) / 2
+
+        # Dibujar la tabla centrada
+        table.wrapOn(c, width, height)
+        table.drawOn(c, x, y)
+
+        # Guardar PDF
+        c.save()
     except Exception as e:
-        print(f"[-] Error al guardar CSV: {str(e)}")
+        print(f"[-] Error PDF: {str(e)}")
+
         raise
 
 # Orquesta el flujo completo: login, extracción, combinaciones, validación y exportación
