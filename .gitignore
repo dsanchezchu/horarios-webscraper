@@ -3,3 +3,4 @@ data-horatios/
 venv/
 .env
 captcha.png
+csv_horarios/
