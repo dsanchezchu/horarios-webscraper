@@ -4,82 +4,73 @@ import json
 import time
 from urllib.parse import urljoin, quote_plus
 import unicodedata
+from urllib.parse import urlparse, parse_qs
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from bs4 import BeautifulSoup
+import time
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+import os
 
-base_busqueda_url = 'https://peru.misprofesores.com' 
 
-
-def buscar_url_perfil(nombre_completo, cabeceras):
+def buscar_url_perfil(nombre_completo, _):
     """
-    Busca un nombre en el sitio y devuelve la URL del primer resultado.
+    Busca el perfil usando Selenium, ya que el contenido se carga vía JavaScript (Google CSE).
     """
-    # Formatear el nombre para la query de la URL (ej: "Juan Pérez" -> "Juan+Pérez")
-    query_formateada = quote_plus(nombre_completo)
-    url_de_busqueda = f"{base_busqueda_url}/Buscar?q={query_formateada}"
-    
-    print(f"[*] Buscando perfil para: '{nombre_completo}'")
-    print(f"[*] URL de búsqueda: {url_de_busqueda}")
+    query = quote_plus(nombre_completo)
+    url_busqueda = f"https://peru.misprofesores.com/Buscar?q={query}"
+
+    print(f"[*] Buscando con Selenium: {url_busqueda}")
+
+    # Configuración de Chrome en modo headless y silencioso
+    options = Options()
+    options.add_argument("--headless=new")  # Usa "--headless" si tienes problemas
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--log-level=3")  # Silencia advertencias/info de Chromium
+
+    # Redirigir los logs del servicio a NUL (en Windows); en Linux usar "/dev/null"
+    service = Service(log_path=os.devnull)
+
+    driver = webdriver.Chrome(service=service, options=options)
 
     try:
-        response = requests.get(url_de_busqueda, headers=cabeceras)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
+        driver.get(url_busqueda)
+        time.sleep(3)  # Esperar a que cargue el contenido dinámico
 
-        # --- LÓGICA PARA ENCONTRAR EL LINK ---
-        # 1. Encontrar el primer div con la clase 'gs-title'
-        div_resultado = soup.find('div', class_='gs-title')
-        
-        if div_resultado:
-            # 2. Dentro de ese div, encontrar el enlace 'a' con la clase 'gs-title'
-            link_tag = div_resultado.find('a', class_='gs-title')
-            
-            if link_tag and link_tag.has_attr('href'):
-                # Extraer el texto completo de la etiqueta <a>
-                texto_a = link_tag.get_text(separator=' ', strip=True)
-                # Extraer todos los textos de las etiquetas <b> dentro de <a>
-                textos_b = [b_tag.get_text(strip=True) for b_tag in link_tag.find_all('b')]
-                # Unir los textos de <b> para comparar con el nombre buscado
-                texto_b_unido = ' '.join(textos_b)
-                # Extraer el texto fuera de <b> (nombres intermedios y apellidos intermedios)
-                partes = []
-                for elem in link_tag.contents:
-                    if hasattr(elem, 'name') and elem.name == 'b':
-                        partes.append(elem.get_text(strip=True))
-                    elif isinstance(elem, str):
-                        # Puede haber espacios, nombres intermedios, apellidos intermedios, guiones, etc.
-                        partes.extend([p for p in elem.strip().split() if p and p != '-'])
-                # Reconstruir el nombre completo detectado (ignorando el texto después del guion)
-                if '-' in partes:
-                    idx = partes.index('-')
-                    partes = partes[:idx]
-                nombre_detectado = ' '.join(partes)
-                # Comprobar si el nombre buscado está contenido (ignorando mayúsculas/minúsculas y tildes)
-                def normalizar(s):
-                    return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn').lower()
-                if normalizar(nombre_completo) != normalizar(nombre_detectado):
-                    print(f"[!] El nombre detectado ('{nombre_detectado}') no coincide exactamente con el nombre buscado ('{nombre_completo}').")
-                nombre_variantes = [
-                    nombre_completo,
-                    nombre_completo.upper(),
-                    nombre_completo.lower(),
-                    nombre_completo.title(),
-                    nombre_completo.capitalize(),
-                    nombre_detectado
-                ]
-                if not any(var in texto_a or var in texto_b_unido for var in nombre_variantes):
-                    print(f"[!] El texto encontrado ('{texto_a}') no coincide exactamente con ninguna variante del nombre buscado.")
-                print(f"[+] ¡Coincidencia encontrada!: '{texto_a}'")
-                href = link_tag['href']
-                # Construye la URL absoluta por si el href es relativo (ej. /perfil/123)
-                url_absoluta = urljoin(url_de_busqueda, href)
-                print(f"[+] URL de perfil obtenida: {url_absoluta}")
-                return url_absoluta
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        resultados = soup.find_all('a', class_='gs-title')
+        tokens = nombre_completo.lower().split()
 
-        print(f"[!] No se encontró ninguna coincidencia para '{nombre_completo}' con la estructura esperada.")
+        for link in resultados:
+            texto = link.get_text(separator=' ', strip=True).lower()
+            href = link.get('href')
+            if not href:
+                continue
+
+            # Extraer URL real si viene con q=
+            if 'q=' in href:
+                qs = parse_qs(urlparse(href).query)
+                real_url = qs.get('q', [None])[0]
+            else:
+                real_url = href
+
+            if not real_url:
+                continue
+
+            coincidencias = sum(1 for token in tokens if token in texto.replace('-', ' '))
+            if coincidencias >= 2:
+                print(f"[+] Coincidencia con {coincidencias} tokens: {texto}")
+                print(f"[+] URL de perfil: {real_url}")
+                return real_url
+
+        print("[!] No se encontraron coincidencias.")
         return None
 
-    except requests.exceptions.RequestException as e:
-        print(f"[ERROR] Falló la petición de búsqueda: {e}")
-        return None
+    finally:
+        driver.quit()
 
 def extraer_comentarios_con_paginacion(start_url, cabeceras):
     """
@@ -125,25 +116,49 @@ def extraer_comentarios_con_paginacion(start_url, cabeceras):
 
 def guardar_en_json(datos, nombre_archivo):
     """
-    Guarda una lista de datos en un archivo JSON.
-    (Esta función no cambia)
+    Guarda una lista de datos en un archivo JSON dentro de la carpeta 'comentarios',
+    omitiendo los comentarios en revisión y eliminando saltos de línea.
     """
     if not datos:
         print("[!] No hay datos para guardar.")
         return
-    output_data = {'total_comentarios': len(datos), 'comentarios': datos}
-    try:
-        with open(nombre_archivo, 'w', encoding='utf-8') as f:
-            json.dump(output_data, f, ensure_ascii=False, indent=4)
-        print(f"\n[SUCCESS] Proceso completado. Datos guardados en '{nombre_archivo}'")
-    except IOError as e:
-        print(f"[ERROR] No se pudo escribir en el archivo '{nombre_archivo}': {e}")
 
+    comentarios_validos = []
+    omitidos = 0
+
+    for comentario in datos:
+        texto = comentario.strip().lower()
+        if not texto or "comentario esperando revisión" in texto:
+            omitidos += 1
+        else:
+            comentario_limpio = comentario.replace("\r", " ").replace("\n", " ").strip()
+            comentarios_validos.append(comentario_limpio)
+
+    output_data = {
+        'total_comentarios': len(comentarios_validos),
+        'comentarios': comentarios_validos
+    }
+
+    # Crear la carpeta 'comentarios' si no existe
+    carpeta = "comentarios"
+    os.makedirs(carpeta, exist_ok=True)
+
+    # Ruta completa del archivo
+    ruta_archivo = os.path.join(carpeta, nombre_archivo)
+
+    try:
+        with open(ruta_archivo, 'w', encoding='utf-8') as f:
+            json.dump(output_data, f, ensure_ascii=False, indent=4)
+
+        print(f"\n[SUCCESS] Proceso completado. Datos guardados en '{ruta_archivo}'")
+        print(f"[INFO] Se omitieron {omitidos} comentario(s) en revisión.")
+    except IOError as e:
+        print(f"[ERROR] No se pudo escribir en el archivo '{ruta_archivo}': {e}")
 
 # --- EJECUCIÓN PRINCIPAL DEL SCRIPT ---
 if __name__ == '__main__':
     # 1. Define el nombre completo que quieres buscar
-    nombre_a_buscar = "Armando Javier Caballero Alvarado" # <--- CAMBIA ESTE VALOR
+    nombre_a_buscar = "Armando Caballero" # <--- CAMBIA ESTE VALOR
 
     # Define las cabeceras para las peticiones HTTP
     headers = {
