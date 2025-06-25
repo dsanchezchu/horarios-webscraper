@@ -16,41 +16,37 @@ import os
 
 def buscar_url_perfil(nombre_completo, _):
     """
-    Busca el perfil usando Selenium, ya que el contenido se carga vía JavaScript (Google CSE).
+    Busca el perfil usando Selenium y devuelve tanto la URL como el nombre real del perfil.
     """
     query = quote_plus(nombre_completo)
     url_busqueda = f"https://peru.misprofesores.com/Buscar?q={query}"
 
     print(f"[*] Buscando con Selenium: {url_busqueda}")
 
-    # Configuración de Chrome en modo headless y silencioso
     options = Options()
-    options.add_argument("--headless=new")  # Usa "--headless" si tienes problemas
+    options.add_argument("--headless=new")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--window-size=1920,1080")
-    options.add_argument("--log-level=3")  # Silencia advertencias/info de Chromium
+    options.add_argument("--log-level=3")
 
-    # Redirigir los logs del servicio a NUL (en Windows); en Linux usar "/dev/null"
     service = Service(log_path=os.devnull)
-
     driver = webdriver.Chrome(service=service, options=options)
 
     try:
         driver.get(url_busqueda)
-        time.sleep(3)  # Esperar a que cargue el contenido dinámico
+        time.sleep(3)
 
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         resultados = soup.find_all('a', class_='gs-title')
         tokens = nombre_completo.lower().split()
 
         for link in resultados:
-            texto = link.get_text(separator=' ', strip=True).lower()
+            texto = link.get_text(separator=' ', strip=True)
             href = link.get('href')
             if not href:
                 continue
 
-            # Extraer URL real si viene con q=
             if 'q=' in href:
                 qs = parse_qs(urlparse(href).query)
                 real_url = qs.get('q', [None])[0]
@@ -60,14 +56,15 @@ def buscar_url_perfil(nombre_completo, _):
             if not real_url:
                 continue
 
-            coincidencias = sum(1 for token in tokens if token in texto.replace('-', ' '))
+            coincidencias = sum(1 for token in tokens if token in texto.lower().replace('-', ' '))
             if coincidencias >= 2:
                 print(f"[+] Coincidencia con {coincidencias} tokens: {texto}")
                 print(f"[+] URL de perfil: {real_url}")
-                return real_url
+                nombre_limpio = texto.split(" - ")[0].strip()
+                return real_url, nombre_limpio
 
         print("[!] No se encontraron coincidencias.")
-        return None
+        return None, None
 
     finally:
         driver.quit()
@@ -114,18 +111,23 @@ def extraer_comentarios_con_paginacion(start_url, cabeceras):
             break
     return todos_los_comentarios
 
-def guardar_en_json(datos, nombre_archivo):
+def guardar_en_json_unico(datos, nombre_docente, nombre_archivo='comentarios.json'):
     """
-    Guarda una lista de datos en un archivo JSON dentro de la carpeta 'comentarios',
-    omitiendo los comentarios en revisión y eliminando saltos de línea.
+    Guarda comentarios de varios docentes en un solo archivo JSON de forma acumulativa.
+    Cada docente tiene su propia sección y se evita duplicar comentarios.
     """
     if not datos:
         print("[!] No hay datos para guardar.")
         return
 
+    # Crear carpeta si no existe
+    carpeta = "comentarios"
+    os.makedirs(carpeta, exist_ok=True)
+    ruta_archivo = os.path.join(carpeta, nombre_archivo)
+
+    # Filtrar comentarios válidos
     comentarios_validos = []
     omitidos = 0
-
     for comentario in datos:
         texto = comentario.strip().lower()
         if not texto or "comentario esperando revisión" in texto:
@@ -134,31 +136,38 @@ def guardar_en_json(datos, nombre_archivo):
             comentario_limpio = comentario.replace("\r", " ").replace("\n", " ").strip()
             comentarios_validos.append(comentario_limpio)
 
-    output_data = {
-        'total_comentarios': len(comentarios_validos),
-        'comentarios': comentarios_validos
-    }
+    # Cargar datos existentes
+    if os.path.exists(ruta_archivo):
+        with open(ruta_archivo, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    else:
+        data = {}
 
-    # Crear la carpeta 'comentarios' si no existe
-    carpeta = "comentarios"
-    os.makedirs(carpeta, exist_ok=True)
+    # Si el docente ya existe, extender sin duplicar
+    if nombre_docente in data:
+        comentarios_anteriores = set(data[nombre_docente]["comentarios"])
+    else:
+        data[nombre_docente] = {"comentarios": []}
+        comentarios_anteriores = set()
 
-    # Ruta completa del archivo
-    ruta_archivo = os.path.join(carpeta, nombre_archivo)
+    nuevos_comentarios = [c for c in comentarios_validos if c not in comentarios_anteriores]
+    data[nombre_docente]["comentarios"].extend(nuevos_comentarios)
+    data[nombre_docente]["total_comentarios"] = len(data[nombre_docente]["comentarios"])
 
     try:
         with open(ruta_archivo, 'w', encoding='utf-8') as f:
-            json.dump(output_data, f, ensure_ascii=False, indent=4)
-
-        print(f"\n[SUCCESS] Proceso completado. Datos guardados en '{ruta_archivo}'")
-        print(f"[INFO] Se omitieron {omitidos} comentario(s) en revisión.")
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        print(f"\n[SUCCESS] Comentarios guardados en '{ruta_archivo}'")
+        print(f"[INFO] Docente: {nombre_docente}")
+        print(f"[INFO] Comentarios añadidos: {len(nuevos_comentarios)}")
+        print(f"[INFO] Comentarios omitidos (revisión o duplicados): {omitidos}")
     except IOError as e:
-        print(f"[ERROR] No se pudo escribir en el archivo '{ruta_archivo}': {e}")
+        print(f"[ERROR] No se pudo guardar el archivo '{ruta_archivo}': {e}")
 
 # --- EJECUCIÓN PRINCIPAL DEL SCRIPT ---
 if __name__ == '__main__':
     # 1. Define el nombre completo que quieres buscar
-    nombre_a_buscar = "Armando Caballero" # <--- CAMBIA ESTE VALOR
+    nombre_a_buscar = "SAGASTEGUI CHIGNE" # <--- CAMBIA ESTE VALOR
 
     # Define las cabeceras para las peticiones HTTP
     headers = {
@@ -166,17 +175,13 @@ if __name__ == '__main__':
     }
 
     # 2. Llama a la función de búsqueda para obtener la URL del perfil
-    url_del_perfil = buscar_url_perfil(nombre_a_buscar, headers)
-    
-    # 3. Si se encontró una URL, procede a extraer los comentarios
+    url_del_perfil, nombre_docente_real = buscar_url_perfil(nombre_a_buscar, headers)
+
     if url_del_perfil:
         print("\n--- Iniciando la extracción de comentarios desde la URL encontrada ---")
         comentarios_totales = extraer_comentarios_con_paginacion(url_del_perfil, headers)
-        
-        # 4. Guarda los resultados en un archivo JSON
+
         if comentarios_totales:
-            # Crea un nombre de archivo dinámico basado en el nombre buscado
-            nombre_archivo_json = f"comentarios_{nombre_a_buscar.replace(' ', '_').lower()}.json"
-            guardar_en_json(comentarios_totales, nombre_archivo_json)
+            guardar_en_json_unico(comentarios_totales, nombre_docente_real)
     else:
         print("\n[!] Proceso detenido. No se pudo encontrar una URL de perfil para continuar.")
