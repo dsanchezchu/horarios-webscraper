@@ -167,7 +167,7 @@ def guardar_en_json_unico(datos, nombre_docente, nombre_archivo='comentarios.jso
 # --- EJECUCIÓN PRINCIPAL DEL SCRIPT ---
 if __name__ == '__main__':
     # 1. Define el nombre completo que quieres buscar
-    nombre_a_buscar = "HUARCAYA LOPEZ JORGE LUIS" # <--- CAMBIA ESTE VALOR
+    nombre_a_buscar = "MORALES SKRABONJA CESAR GUILLERMO" # <--- CAMBIA ESTE VALOR
 
     # Define las cabeceras para las peticiones HTTP
     headers = {
