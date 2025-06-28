@@ -27,19 +27,17 @@ os.makedirs(DATA_FOLDER, exist_ok=True)
 CSV_FOLDER = "csv_horarios"
 os.makedirs(CSV_FOLDER, exist_ok=True)
 
-def setup_brave():
+def setup_chrome():
     try:
-        print("[+] Configurando navegador Brave...")
+        print("[+] Configurando navegador Chrome (Linux)...")
         options = webdriver.ChromeOptions()
-        options.binary_location = "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
-        options.add_argument("--start-maximized")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--disable-gpu")  # Desactivar GPU
-        options.add_argument("--no-sandbox")  # Modo sin sandbox
-        options.add_argument("--disable-dev-shm-usage")  # Evitar problemas de memoria
+        options.add_argument("--headless")  # Opcional: sin interfaz gráfica
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
         return webdriver.Chrome(options=options)
     except Exception as e:
-        print(f"[-] Error al configurar Brave: {str(e)}")
+        print(f"[-] Error al configurar Chrome: {str(e)}")
         raise
 
 def random_delay(context):
@@ -284,7 +282,7 @@ def extract_course_by_id(driver, curso_id):
         return []
     
 def abrir_login_y_guardar_captcha(user, password, base_url):
-    driver = setup_brave()
+    driver = setup_chrome()
     driver.get(base_url)
     form = WebDriverWait(driver, 20).until(
         EC.presence_of_element_located((By.XPATH, "//table[.//input[@placeholder='usuario']]"))
