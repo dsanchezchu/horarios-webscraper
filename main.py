@@ -19,7 +19,6 @@ import json
 
 # Configuración inicial
 load_dotenv()
-CURSO_IDS = input("Ingrese IDs de los cursos (ej: ISIA-109,ISIA-110): ").strip().upper().split(',')
 PDF_FOLDER = "horarios_generados"
 os.makedirs(PDF_FOLDER, exist_ok=True)
 DATA_FOLDER = "data-horarios"
@@ -28,19 +27,17 @@ os.makedirs(DATA_FOLDER, exist_ok=True)
 CSV_FOLDER = "csv_horarios"
 os.makedirs(CSV_FOLDER, exist_ok=True)
 
-def setup_brave():
+def setup_chrome():
     try:
-        print("[+] Configurando navegador Brave...")
+        print("[+] Configurando navegador Chrome (Linux)...")
         options = webdriver.ChromeOptions()
-        options.binary_location = "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
-        options.add_argument("--start-maximized")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--disable-gpu")  # Desactivar GPU
-        options.add_argument("--no-sandbox")  # Modo sin sandbox
-        options.add_argument("--disable-dev-shm-usage")  # Evitar problemas de memoria
+        options.add_argument("--headless")  # Opcional: sin interfaz gráfica
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
         return webdriver.Chrome(options=options)
     except Exception as e:
-        print(f"[-] Error al configurar Brave: {str(e)}")
+        print(f"[-] Error al configurar Chrome: {str(e)}")
         raise
 
 def random_delay(context):
@@ -284,42 +281,96 @@ def extract_course_by_id(driver, curso_id):
         print(f"[-] Error procesando {curso_id}: {str(e)}")
         return []
     
-def login_and_navigate(driver):
+def abrir_login_y_guardar_captcha(user, password, base_url):
+    driver = setup_chrome()
+    driver.get(base_url)
+    form = WebDriverWait(driver, 20).until(
+        EC.presence_of_element_located((By.XPATH, "//table[.//input[@placeholder='usuario']]"))
+    )
+    form.find_element(By.XPATH, ".//input[@placeholder='usuario']").send_keys(user)
+    form.find_element(By.XPATH, ".//input[@placeholder='contraseña']").send_keys(password)
+    captcha = form.find_element(By.ID, "imgCaptcha")
+    captcha_path = "captcha.png"
+    captcha.screenshot(captcha_path)
+    # NO hagas nada más aquí, no recargues ni cambies de página
+    return driver, captcha_path
+
+def login_and_navigate(driver, captcha_code, base_horarios):
+    # Usa el mismo driver y DOM, solo llena el captcha y haz click
+    form = driver.find_element(By.XPATH, "//table[.//input[@placeholder='usuario']]")
+    form.find_element(By.ID, "txt_img").send_keys(captcha_code)
+    form.find_element(By.ID, "btn_valida").click()
+    time.sleep(random_delay('navegacion'))
+
+    driver.get(base_horarios)
+    pregrado = WebDriverWait(driver, 20).until(
+        EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Horarios de clase pregrado')]"))
+    )
+    pregrado.click()
+    time.sleep(random_delay('carga'))
+
+    isia = driver.find_element(By.XPATH, "//td[contains(text(), 'ISIA')]/following-sibling::td[1]")
+    driver.execute_script("arguments[0].click();", isia)
+    time.sleep(random_delay('carga'))
+    return driver
+
+def run_horario_scraper(user, password, curso_ids, base_url, base_horarios, driver):
+    PDF_FOLDER = "horarios_generados"
+    os.makedirs(PDF_FOLDER, exist_ok=True)
+    DATA_FOLDER = "data-horarios"
+    os.makedirs(DATA_FOLDER, exist_ok=True)
+    CSV_FOLDER = "csv_horarios"
+    os.makedirs(CSV_FOLDER, exist_ok=True)
+
+    all_secciones = []
+    validos = []
+
     try:
-        driver.get(os.getenv("BASE_URL"))
-        form = WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.XPATH, "//table[.//input[@placeholder='usuario']]"))
-        )
-        form.find_element(By.XPATH, ".//input[@placeholder='usuario']").send_keys(os.getenv("UPAO_USER"))
-        form.find_element(By.XPATH, ".//input[@placeholder='contraseña']").send_keys(os.getenv("UPAO_PASS"))
-        
-        try:
-            captcha = form.find_element(By.ID, "imgCaptcha")
-            captcha.screenshot("captcha.png")
-            code = input("Ingrese CAPTCHA: ")
-            form.find_element(By.ID, "txt_img").send_keys(code)
-        except:
-            pass
-        
-        form.find_element(By.ID, "btn_valida").click()
-        time.sleep(random_delay('navegacion'))
-        
-        driver.get(os.getenv("BASE_HORARIOS"))
-        pregrado = WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Horarios de clase pregrado')]"))
-        )
-        pregrado.click()
-        time.sleep(random_delay('carga'))
-        
-        isia = driver.find_element(By.XPATH, "//td[contains(text(), 'ISIA')]/following-sibling::td[1]")
-        driver.execute_script("arguments[0].click();", isia)
-        time.sleep(random_delay('carga'))
-        
-        return driver
+        for curso_id in curso_ids:
+            if not re.match(r'^[A-Z]{4}-\d{3}$', curso_id):
+                print(f"[-] ID inválido: {curso_id}")
+                continue
+            print(f"\n[+] Procesando curso: {curso_id}")
+            curso_data = extract_course_by_id(driver, curso_id)
+            if curso_data:
+                all_secciones.extend(curso_data)
+                json_path = os.path.join(DATA_FOLDER, f"{curso_id}.json")
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(curso_data, f, ensure_ascii=False, indent=2, default=str)
+                print(f"[+] Datos de {curso_id} guardados en {json_path}")
+        combinaciones = generar_combinaciones_todos_cursos(all_secciones)
+        print(f"[+] {len(combinaciones)} combinaciones encontradas")
+        for comb in combinaciones:
+            horario = []
+            for grupo in comb:
+                for sec in grupo:
+                    for h in sec['horarios']:
+                        horario.append({
+                            'curso': sec['curso'],
+                            'id_liga': sec['id_liga'],
+                            'nrc': sec['nrc'],
+                            'dia': h['dia'],
+                            'hora_inicio': h['hora_inicio'],
+                            'hora_fin': h['hora_fin'],
+                            'docente': sec['docente']
+                        })
+            if is_horario_valido(horario):
+                validos.append(horario)
+                if len(validos) >= 100:
+                    break
+        print(f"[+] {len(validos)} horarios válidos generados")
+        for i, horario in enumerate(validos[:20]):
+            filename = os.path.join(PDF_FOLDER, f"horario_valido_{i+1}.pdf")
+            crear_pdf(horario, filename)
+        csv_filename = os.path.join(CSV_FOLDER, "horarios_validos.csv")
+        guardar_horarios_csv(validos, csv_filename)
+        return True, f"Proceso completado. PDFs y CSV generados en las carpetas correspondientes."
     except Exception as e:
-        print(f"[-] Error en login: {str(e)}")
-        driver.quit()
-        raise
+        print(f"[-] Error crítico: {str(e)}")
+        return False, str(e)
+    finally:
+        if driver and hasattr(driver, "quit"):
+            driver.quit()
 
 def guardar_horarios_csv(horarios, filename):
     try:
@@ -345,69 +396,3 @@ def guardar_horarios_csv(horarios, filename):
     except Exception as e:
         print(f"[-] Error al guardar CSV: {str(e)}")
         raise
-    
-def main():
-    driver = setup_brave()
-    all_secciones = []
-    validos = []
-
-    try:
-        # Login y navegación inicial
-        driver = login_and_navigate(driver)
-        
-        # Procesar cada curso
-        for curso_id in CURSO_IDS:
-            if not re.match(r'^[A-Z]{4}-\d{3}$', curso_id):
-                print(f"[-] ID inválido: {curso_id}")
-                continue
-                
-            print(f"\n[+] Procesando curso: {curso_id}")
-            curso_data = extract_course_by_id(driver, curso_id)         
-            if curso_data:
-                all_secciones.extend(curso_data)
-                # Guardar datos en JSON
-                json_path = os.path.join(DATA_FOLDER, f"{curso_id}.json")
-                with open(json_path, "w", encoding="utf-8") as f:
-                    json.dump(curso_data, f, ensure_ascii=False, indent=2, default=str)
-                print(f"[+] Datos de {curso_id} guardados en {json_path}") 
-                
-        # Generar combinaciones de todos los cursos
-        combinaciones = generar_combinaciones_todos_cursos(all_secciones)
-        print(f"[+] {len(combinaciones)} combinaciones encontradas")
-        
-        # Generar horarios válidos
-        for comb in combinaciones:
-            horario = []
-            for grupo in comb:  # cada 'grupo' es una tupla de secciones del mismo curso
-                for sec in grupo:
-                    for h in sec['horarios']:
-                        horario.append({
-                            'curso': sec['curso'],
-                            'id_liga': sec['id_liga'],
-                            'nrc': sec['nrc'],
-                            'dia': h['dia'],
-                            'hora_inicio': h['hora_inicio'],
-                            'hora_fin': h['hora_fin'],
-                            'docente': sec['docente']
-                        })
-            if is_horario_valido(horario):
-                validos.append(horario)
-                if len(validos) >= 100:  # Guardar hasta 100 combinaciones
-                    break
-        
-        print(f"[+] {len(validos)} horarios válidos generados")
-        
-        # Crear PDFs para los horarios válidos (solo los primeros 20)
-        for i, horario in enumerate(validos[:20]):
-            filename = os.path.join(PDF_FOLDER, f"horario_valido_{i+1}.pdf")
-            crear_pdf(horario, filename)
-        csv_filename = os.path.join(CSV_FOLDER, "horarios_validos.csv")
-        guardar_horarios_csv(validos, csv_filename)
-    
-    except Exception as e:
-        print(f"[-] Error crítico: {str(e)}")
-    finally:
-        driver.quit()
-
-if __name__ == "__main__":
-    main()
