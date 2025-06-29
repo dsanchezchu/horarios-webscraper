@@ -60,8 +60,6 @@ resource "aws_instance" "scraper" {
               sudo apt install -y python3-pip python3-venv unzip wget git
               wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
               sudo apt install -y ./google-chrome-stable_current_amd64.deb
-              sudo apt install -y xvfb poppler-utils
-              git clone https://github.com/dsanchezchu/horarios-webscraper.git /home/ubuntu/horarios-webscraper
               EOF
 
   tags = {
