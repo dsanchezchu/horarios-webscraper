@@ -7,3 +7,9 @@ csv_horarios/
 modelo_entrenado/
 clasificacion_profesores.csv
 results/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
