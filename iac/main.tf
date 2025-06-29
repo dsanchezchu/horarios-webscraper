@@ -54,12 +54,24 @@ resource "aws_instance" "scraper" {
   key_name      = aws_key_pair.deployer.key_name
   security_groups = [aws_security_group.allow_ssh_streamlit.name]
 
-  user_data = <<-EOF
+    user_data = <<-EOF
               #!/bin/bash
-              sudo apt update
-              sudo apt install -y python3-pip python3-venv unzip wget git
+              apt update -y
+              apt install -y python3-pip python3-venv unzip wget git
+
               wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-              sudo apt install -y ./google-chrome-stable_current_amd64.deb
+              dpkg -i google-chrome-stable_current_amd64.deb || apt install -f -y
+
+              cd /home/ubuntu
+              git clone https://github.com/dsanchezchu/horarios-webscraper.git
+              cd horarios-webscraper
+
+              python3 -m venv venv
+              source venv/bin/activate
+
+              pip install --upgrade pip
+              pip install -r requirements.txt
+
               EOF
 
   tags = {
