@@ -4,7 +4,7 @@ provider "aws" {
 
 resource "aws_key_pair" "deployer" {
   key_name   = "deployer-key"
-  public_key = file("C:/Users/Usuario/.ssh/id_rsa.pub")
+  public_key = file("~/.ssh/id_rsa.pub")
 }
 
 resource "aws_security_group" "allow_ssh_streamlit" {
@@ -53,6 +53,11 @@ resource "aws_instance" "scraper" {
   instance_type = "t2.micro"
   key_name      = aws_key_pair.deployer.key_name
   security_groups = [aws_security_group.allow_ssh_streamlit.name]
+
+  root_block_device {
+    volume_size = 30
+    volume_type = "gp2"
+  }
 
     user_data = <<-EOF
               #!/bin/bash
