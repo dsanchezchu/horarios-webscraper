@@ -30,7 +30,7 @@ if __name__ == "__main__":
 
     training_args = TrainingArguments(
         output_dir="./results",
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",  # Changed from evaluation_strategy
         logging_strategy="epoch",
         save_strategy="epoch",
         per_device_train_batch_size=8,
@@ -38,6 +38,7 @@ if __name__ == "__main__":
         num_train_epochs=3,
         weight_decay=0.01,
         logging_dir="./logs",
+        report_to=None,  # Disable wandb/tensorboard logging
     )
 
     trainer = Trainer(
