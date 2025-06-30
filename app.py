@@ -225,27 +225,10 @@ def show_profesor_opinions():
         st.warning("No se encontraron comentarios para los profesores de tus horarios")
         return
     
-    # Crear DataFrame y mostrar información
+    # Crear DataFrame
     df_profesores = pd.DataFrame(profesores_con_comentarios)
     
-    # Mostrar estadísticas
-    total_profesores = len(df_profesores)
-    total_comentarios = df_profesores['Total_Comentarios'].sum()
-    promedio_comentarios = round(total_comentarios / total_profesores, 1) if total_profesores > 0 else 0
-    
-    # Mostrar estadísticas con estilos personalizados
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown(render_metric_card(total_profesores, "Profesores con comentarios", "total"), unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(render_metric_card(total_comentarios, "Total de comentarios", "buenos"), unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(render_metric_card(promedio_comentarios, "Promedio por profesor", "neutros"), unsafe_allow_html=True)
-    
-    # Mostrar lista de profesores con botones para cada uno
+    # Mostrar lista de profesores con botones para cada uno (sin estadísticas)
     st.markdown("**Haz clic en un profesor para ver sus comentarios:**")
     
     for index, row in df_profesores.iterrows():
@@ -355,29 +338,29 @@ elif st.session_state.pantalla == "final":
     # Mostrar opiniones si están activadas
     if st.session_state.mostrar_opiniones:
         show_profesor_opinions()
-    
-    # Separador visual
-    st.markdown("---")
-    
-    # Botón para clasificar profesores
-    if st.button("🎯 Clasificar profesores", use_container_width=True):
-        if not st.session_state.clasificaciones_procesadas:
-            with st.spinner("Clasificando profesores con análisis de sentimientos..."):
-                success, message = ejecutar_clasificacion_profesores()
-                if success:
-                    st.session_state.clasificaciones_procesadas = True
-                    st.session_state.mostrar_clasificaciones = True
-                    st.success(message)
-                    st.rerun()
-                else:
-                    st.error(message)
-        else:
-            st.session_state.mostrar_clasificaciones = True
-            st.rerun()
-    
-    # Mostrar clasificaciones si están activadas
-    if st.session_state.mostrar_clasificaciones:
-        show_profesor_classifications()
+        
+        # Separador visual
+        st.markdown("---")
+        
+        # Botón para clasificar profesores (solo aparece después de mostrar opiniones)
+        if st.button("🎯 Clasificar profesores", use_container_width=True):
+            if not st.session_state.clasificaciones_procesadas:
+                with st.spinner("Clasificando profesores con análisis de sentimientos..."):
+                    success, message = ejecutar_clasificacion_profesores()
+                    if success:
+                        st.session_state.clasificaciones_procesadas = True
+                        st.session_state.mostrar_clasificaciones = True
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+            else:
+                st.session_state.mostrar_clasificaciones = True
+                st.rerun()
+        
+        # Mostrar clasificaciones si están activadas
+        if st.session_state.mostrar_clasificaciones:
+            show_profesor_classifications()
     
     # Separador visual
     st.markdown("---")
@@ -408,7 +391,7 @@ elif st.session_state.pantalla == "final":
             except Exception as e:
                 print(f"[ERROR] Error al eliminar clasificacion_profesores.json: {e}")
 
-                            # Limpiar archivo de clasificaciones CSV
+            # Limpiar archivo de clasificaciones CSV
             try:
                 if os.path.exists("./comentarios/datacoment.csv"):
                     os.remove("./comentarios/datacoment.csv")
@@ -422,6 +405,19 @@ elif st.session_state.pantalla == "final":
                     print("[INFO] Se eliminó comentarios.json")
             except Exception as e:
                 print(f"[ERROR] Error al eliminar comentarios.json: {e}")
+
+            # Limpiar archivos JSON de la carpeta data-horarios
+            try:
+                data_horarios_folder = "data-horarios"
+                if os.path.exists(data_horarios_folder):
+                    json_files = [f for f in os.listdir(data_horarios_folder) if f.endswith(".json")]
+                    for json_file in json_files:
+                        json_path = os.path.join(data_horarios_folder, json_file)
+                        os.remove(json_path)
+                    if json_files:
+                        print(f"[INFO] Se eliminaron {len(json_files)} archivos JSON de data-horarios")
+            except Exception as e:
+                print(f"[ERROR] Error al eliminar JSONs de data-horarios: {e}")
 
             # Limpiar todas las variables de sesión
             for key in list(st.session_state.keys()):
