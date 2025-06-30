@@ -22,4 +22,4 @@ df = pd.DataFrame(registros)
 # Guardar a CSV
 df.to_csv("comentarios/datacoment.csv", index=False, sep=';')
 
-print("✅ Archivo 'datacoment.csv' generado correctamente.")
+print("Archivo 'datacoment.csv' generado correctamente.")
