@@ -50,7 +50,7 @@ resource "aws_security_group" "allow_ssh_streamlit" {
 
 resource "aws_instance" "scraper" {
   ami           = "ami-0aeb7c931a5a61206"
-  instance_type = "t2.micro"
+  instance_type = "t2.medium"
   key_name      = aws_key_pair.deployer.key_name
   security_groups = [aws_security_group.allow_ssh_streamlit.name]
 
