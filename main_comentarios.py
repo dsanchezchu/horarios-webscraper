@@ -121,7 +121,7 @@ def guardar_en_json_unico(datos, nombre_docente, nombre_archivo='comentarios.jso
         return
 
     # Crear carpeta si no existe
-    carpeta = "horarios-webscraper/comentarios"
+    carpeta = "comentarios"
     os.makedirs(carpeta, exist_ok=True)
     ruta_archivo = os.path.join(carpeta, nombre_archivo)
 
@@ -166,22 +166,38 @@ def guardar_en_json_unico(datos, nombre_docente, nombre_archivo='comentarios.jso
 
 # --- EJECUCIÓN PRINCIPAL DEL SCRIPT ---
 if __name__ == '__main__':
-    # 1. Define el nombre completo que quieres buscar
-    nombre_a_buscar = "MORALES SKRABONJA CESAR GUILLERMO" # <--- CAMBIA ESTE VALOR
+    import glob
 
-    # Define las cabeceras para las peticiones HTTP
+    # Carpeta donde están los archivos .json de horarios
+    carpeta_horarios = "data-horarios"
+    archivos_json = glob.glob(os.path.join(carpeta_horarios, "*.json"))
+
+    # Set para almacenar nombres únicos de docentes
+    nombres_docentes = set()
+
+    for archivo in archivos_json:
+        with open(archivo, 'r', encoding='utf-8') as f:
+            try:
+                contenido = json.load(f)
+                for item in contenido:
+                    if "docente" in item:
+                        nombres_docentes.add(item["docente"].strip().upper())
+            except json.JSONDecodeError:
+                print(f"[!] Error al decodificar JSON en: {archivo}")
+
+    print(f"\n[INFO] Se encontraron {len(nombres_docentes)} docentes únicos.\n")
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    # 2. Llama a la función de búsqueda para obtener la URL del perfil
-    url_del_perfil, nombre_docente_real = buscar_url_perfil(nombre_a_buscar, headers)
+    for nombre_docente in sorted(nombres_docentes):
+        print(f"\n===== Procesando docente: {nombre_docente} =====")
+        url_del_perfil, nombre_docente_real = buscar_url_perfil(nombre_docente, headers)
 
-    if url_del_perfil:
-        print("\n--- Iniciando la extracción de comentarios desde la URL encontrada ---")
-        comentarios_totales = extraer_comentarios_con_paginacion(url_del_perfil, headers)
-
-        if comentarios_totales:
-            guardar_en_json_unico(comentarios_totales, nombre_docente_real)
-    else:
-        print("\n[!] Proceso detenido. No se pudo encontrar una URL de perfil para continuar.")
+        if url_del_perfil:
+            comentarios_totales = extraer_comentarios_con_paginacion(url_del_perfil, headers)
+            if comentarios_totales:
+                guardar_en_json_unico(comentarios_totales, nombre_docente_real)
+        else:
+            print(f"[!] No se encontró URL de perfil para: {nombre_docente}")

@@ -1,10 +1,24 @@
 # Paso 2: Generación de clasificación de profesores
 import torch
 import pandas as pd
-import json  # Se importa json para guardar también el resultado en ese formato
+import json
+import re
+import unicodedata
 from transformers import BertTokenizer, BertForSequenceClassification
 
 MODEL_DIR = "./modelo_entrenado"
+
+# Función para limpiar texto
+def limpiar_texto(texto):
+    texto = str(texto)
+    texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8', 'ignore')
+    texto = texto.lower()
+    texto = re.sub(r'http\S+|www\S+|https\S+', '', texto)
+    texto = re.sub(r'@\w+|#\w+', '', texto)
+    texto = re.sub(r'[^\w\s]', '', texto)
+    texto = re.sub(r'\d+', '', texto)
+    texto = re.sub(r'\s+', ' ', texto).strip()
+    return texto
 
 def clasificar_profesores(model, tokenizer):
     # Leer comentarios desde archivo CSV
@@ -12,8 +26,11 @@ def clasificar_profesores(model, tokenizer):
     df.columns = df.columns.str.strip()
     df = df.dropna(subset=['comentarios'])
 
-    # Tokenizar comentarios
-    textos = df['comentarios'].tolist()
+    # Aplicar limpieza de texto
+    df['comentarios_limpios'] = df['comentarios'].apply(limpiar_texto)
+
+    # Tokenizar comentarios limpios
+    textos = df['comentarios_limpios'].tolist()
     tokens = tokenizer(textos, padding=True, truncation=True, return_tensors="pt")
 
     # Realizar predicciones sin gradiente (modo inferencia)
@@ -43,12 +60,12 @@ def clasificar_profesores(model, tokenizer):
     # Guardar resultados en CSV
     resultado_df = pd.DataFrame(clasificacion)
     resultado_df.to_csv("clasificacion_profesores.csv", index=False, sep=';')
-    print("✅ Clasificación generada en 'clasificacion_profesores.csv'")
+    print("Clasificación generada en 'clasificacion_profesores.csv'")
 
     # Guardar resultados en JSON
     with open("clasificacion_profesores.json", "w", encoding="utf-8") as f:
         json.dump(clasificacion, f, ensure_ascii=False, indent=4)
-    print("✅ Clasificación generada en 'clasificacion_profesores.json'")
+    print("Clasificación generada en 'clasificacion_profesores.json'")
 
 if __name__ == "__main__":
     tokenizer = BertTokenizer.from_pretrained(MODEL_DIR)
